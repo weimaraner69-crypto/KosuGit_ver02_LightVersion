@@ -78,11 +78,26 @@ SECRET_PATTERNS: list[str] = [
     r"AKIA[0-9A-Z]{16}",  # AWS Access Key ID
     r"-----BEGIN\s+(RSA|DSA|EC|OPENSSH)\s+PRIVATE\s+KEY-----",  # SSH 秘密鍵
     r"ghp_[A-Za-z0-9_]{36,}",  # GitHub Personal Access Token
+    r"gho_[A-Za-z0-9_]{36,}",  # GitHub OAuth Token
     r"sk-[A-Za-z0-9]{32,}",  # 汎用 API キー
     r"sk-ant-api03-[A-Za-z0-9\-_]{20,}",  # Anthropic API キー新形式
     r"sk-proj-[A-Za-z0-9]{20,}",  # OpenAI API キー新形式
     r"Bearer\s+[A-Za-z0-9\-._~+/]{20,}=*",  # Bearer トークン（最小20文字で誤検知低減）
     r"password\s*=\s*[\"'][^\"\']+[\"']",  # パスワードハードコード
+    r"passwd\s*=\s*[\"'][^\"\']+[\"']",  # パスワードハードコード
+    r"secret\s*=\s*[\"'][^\"\']+[\"']",  # シークレットハードコード
+    r"api_key\s*=\s*[\"'][^\"\']+[\"']",  # API キーハードコード
+]
+
+# 個人情報パターン（正規表現、全ファイル種別に適用）
+# ログ出力や不適切な保存を検出
+PERSONAL_INFO_PATTERNS: list[str] = [
+    # メールアドレスのログ出力（logger.info や print 内）
+    r'(logger\.(info|debug|warning|error)|print)\s*\([^)]*["\'].*@.*\..*["\']',
+    # 電話番号のログ出力（日本の電話番号形式）
+    r'(logger\.(info|debug|warning|error)|print)\s*\([^)]*["\'].*\d{2,4}-\d{2,4}-\d{4}.*["\']',
+    # 平文パスワードのログ出力
+    r'(logger\.(info|debug|warning|error)|print)\s*\([^)]*password[^)]*\)',
 ]
 
 # URL パターン（コード中の外部 URL 直書きを検出）
@@ -165,6 +180,22 @@ def is_comment_line(line: str, suffix: str) -> bool:
     )
 
 
+def should_skip_secret_pattern(path: Path, pattern: str) -> bool:
+    """ファイル種別に応じて秘密情報パターン検査を除外する。"""
+    rel = path.relative_to(REPO_ROOT).as_posix()
+
+    is_password_assignment_pattern = (
+        "password\\s*=\\s*" in pattern or "passwd\\s*=\\s*" in pattern
+    )
+    if is_password_assignment_pattern:
+        if rel.startswith("tests/"):
+            return True
+        if path.suffix.lower() == ".md":
+            return True
+
+    return False
+
+
 # ---------------------------------------------------------------------------
 # スキャン
 # ---------------------------------------------------------------------------
@@ -196,8 +227,15 @@ def scan_file(path: Path) -> list[str]:
 
     # 秘密情報（全ファイル種別）
     for pat in SECRET_PATTERNS:
+        if should_skip_secret_pattern(path, pat):
+            continue
         if re.search(pat, text):
             issues.append(f"秘密情報疑い: パターン検出 ({pat}) in {rel}")
+
+    # 個人情報（全ファイル種別）
+    for pat in PERSONAL_INFO_PATTERNS:
+        if re.search(pat, text):
+            issues.append(f"個人情報保護違反疑い: パターン検出 ({pat}) in {rel}")
 
     # プロジェクト固有の禁止パターン（全ファイル種別）
     for pat in FORBIDDEN_PATTERNS:

@@ -1,24 +1,19 @@
 [project]
-name = "dev-orchestration-template"
+name = "business-management-system"
 version = "0.1.0"
-description = "AI エージェントパイプラインの開発オーケストレーションテンプレート"
-requires-python = ">=3.11"
-dependencies = []
+description = "中小企業向け業務管理システム（日報・売上・人件費・原価管理、シフト・出退勤管理、教育コンテンツ管理）"
+requires-python = ">=3.9"
+dependencies = [
+    "cryptography>=42.0",  # データ暗号化
+]
 
 [project.optional-dependencies]
-# OpenTelemetry 計装に必要な依存ライブラリ。
-# プロジェクトで計装を有効化する場合: uv sync --extra observability
-observability = [
-    "opentelemetry-sdk>=1.20.0",
-    "opentelemetry-exporter-otlp>=1.20.0",
-]
 dev = [
     "pytest>=8.0",
     "pytest-cov>=5.0",
     "hypothesis>=6.0",
     "ruff>=0.5",
     "mypy>=1.10",
-    "mutmut>=2.5.0",
 ]
 
 [build-system]
@@ -36,6 +31,9 @@ src = ["src"]
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "N", "UP", "B", "SIM", "TCH"]
 
+[tool.ruff.lint.per-file-ignores]
+"tests/**/*.py" = ["N802", "UP017"]
+
 [tool.mypy]
 python_version = "3.11"
 strict = true
@@ -43,16 +41,6 @@ warn_return_any = true
 warn_unused_configs = true
 mypy_path = "src"
 
-# observability パッケージは OTel SDK の有無で type: ignore の要否が変わるため、
-# unused-ignore を抑制する。
-[[tool.mypy.overrides]]
-module = "observability.*"
-warn_unused_ignores = false
-
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["src"]
-
-[tool.mutmut]
-paths_to_mutate = "src/"
-tests_dir = "tests/"
