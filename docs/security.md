@@ -148,9 +148,9 @@ logger.info(f"Action: update_salary, User: {user.user_id}, Target: {employee_id}
 - 実装状況（2026年3月4日時点）: SEC-007 は完了。API共通テンプレートで成功/失敗の監査記録を実施し、SQLAlchemy ライタで監査ログのDB永続化を実装済み。
 - 対象ID実連携: 業務処理結果の `export_id` / `report_id` / `record_id` から `target_resource_id` を監査ログへ連携する。
 - 記録対象（最小）: 実行ユーザーID、ユーザーロール、対象リソースID、操作種別（read/create/update/delete/approve/export など）、実行結果（success/failure）、失敗時エラー種別。
-- 実装箇所: 共通モデル/ライタは `src/shared/audit.py`（DB永続化 + HTTP外部転送 + 複合ライタ）、監査ログテーブルは `src/shared/tables.py`、API接続は `src/shared/api_handlers.py`、業務API接続は `src/business/api.py` と `src/attendance/api.py`。
+- 実装箇所: 共通モデル/ライタは `src/shared/audit.py`（DB永続化 + HTTP外部転送 + 複合ライタ + Retention削除ユーティリティ）、監査ログテーブルは `src/shared/tables.py`、API接続は `src/shared/api_handlers.py`、業務API接続は `src/business/api.py` と `src/attendance/api.py`。
 - 機微情報保護: `metadata` は機微情報キー（例: `email`, `password`, `token`, `salary`）を除外して保存し、監査ログ書き込み失敗は業務処理へ影響させない（レスポンスは維持）。
-- 次アクション: 保持期間運用（Retention/削除またはアーカイブ）を実装し、運用Runbookへ反映する。
+- 次アクション: 運用Runbookへ保持期間バッチの実行手順・誤削除防止手順・障害時手順を反映する。
 
 ## 認証・認可
 

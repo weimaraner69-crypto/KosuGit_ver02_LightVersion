@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime, timedelta, timezone
 from typing import cast
 
 import pytest
@@ -15,6 +16,7 @@ from shared.audit import (
     HttpAuditLogWriter,
     InMemoryAuditLogWriter,
     SqlAlchemyAuditLogWriter,
+    cleanup_expired_audit_logs,
     sanitize_audit_metadata,
     write_audit_log,
 )
@@ -219,3 +221,130 @@ def test_http_audit_log_writer_endpoint_urlが不正ならエラー() -> None:
     """HTTPライタは不正URLを拒否する。"""
     with pytest.raises(ValueError, match="endpoint_url"):
         HttpAuditLogWriter(endpoint_url="audit.internal.local")
+
+
+def test_cleanup_expired_audit_logs_期限超過のみ削除する() -> None:
+    """保持期限を超過した行のみ削除する。"""
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(bind=engine)
+    now = datetime.now(timezone.utc)
+
+    with Session(engine) as session:
+        writer = SqlAlchemyAuditLogWriter(session=session, auto_commit=False)
+        writer.write(
+            AuditLogEntry(
+                actor_user_id="old-user",
+                actor_role="admin",
+                resource="report",
+                action="update",
+                result="success",
+                occurred_at=now - timedelta(days=40),
+            )
+        )
+        writer.write(
+            AuditLogEntry(
+                actor_user_id="new-user",
+                actor_role="manager",
+                resource="sales",
+                action="read",
+                result="success",
+                occurred_at=now - timedelta(days=1),
+            )
+        )
+
+        deleted_count = cleanup_expired_audit_logs(
+            session=session,
+            retention_days=30,
+            now=now,
+        )
+
+        assert deleted_count == 1
+        remain_rows = session.query(AuditLogTable).all()
+
+    assert len(remain_rows) == 1
+    assert remain_rows[0].actor_user_id == "new-user"
+
+
+def test_cleanup_expired_audit_logs_アーカイブ成功時に削除する() -> None:
+    """アーカイブ成功時は期限超過行を削除する。"""
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(bind=engine)
+    now = datetime.now(timezone.utc)
+
+    with Session(engine) as session:
+        writer = SqlAlchemyAuditLogWriter(session=session, auto_commit=False)
+        writer.write(
+            AuditLogEntry(
+                actor_user_id="old-user",
+                actor_role="admin",
+                resource="report",
+                action="delete",
+                result="failure",
+                occurred_at=now - timedelta(days=60),
+                error_type="AuthorizationError",
+            )
+        )
+
+        archive_writer = InMemoryAuditLogWriter()
+        deleted_count = cleanup_expired_audit_logs(
+            session=session,
+            retention_days=30,
+            now=now,
+            archive_writer=archive_writer,
+        )
+
+        assert deleted_count == 1
+        assert len(archive_writer.entries) == 1
+        assert archive_writer.entries[0].actor_user_id == "old-user"
+        assert archive_writer.entries[0].error_type == "AuthorizationError"
+        remain_rows = session.query(AuditLogTable).all()
+
+    assert len(remain_rows) == 0
+
+
+def test_cleanup_expired_audit_logs_アーカイブ失敗時は削除しない() -> None:
+    """アーカイブ失敗時は安全側で削除をスキップする。"""
+
+    class FailingAuditLogWriter:
+        """常に失敗するテスト用ライタ。"""
+
+        def write(self, _: AuditLogEntry) -> None:
+            raise RuntimeError("archive failed")
+
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(bind=engine)
+    now = datetime.now(timezone.utc)
+
+    with Session(engine) as session:
+        writer = SqlAlchemyAuditLogWriter(session=session, auto_commit=False)
+        writer.write(
+            AuditLogEntry(
+                actor_user_id="old-user",
+                actor_role="admin",
+                resource="report",
+                action="update",
+                result="success",
+                occurred_at=now - timedelta(days=60),
+            )
+        )
+
+        deleted_count = cleanup_expired_audit_logs(
+            session=session,
+            retention_days=30,
+            now=now,
+            archive_writer=FailingAuditLogWriter(),
+        )
+
+        assert deleted_count == 0
+        remain_rows = session.query(AuditLogTable).all()
+
+    assert len(remain_rows) == 1
+
+
+def test_cleanup_expired_audit_logs_retention_days不正でエラー() -> None:
+    """保持日数が不正な場合はエラー。"""
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(bind=engine)
+
+    with Session(engine) as session, pytest.raises(ValueError, match="retention_days"):
+        cleanup_expired_audit_logs(session=session, retention_days=0)

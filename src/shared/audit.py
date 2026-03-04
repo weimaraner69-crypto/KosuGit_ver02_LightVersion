@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
-from typing import TYPE_CHECKING, Protocol
+from datetime import datetime, timedelta, timezone
+from typing import TYPE_CHECKING, Protocol, cast
 from urllib.request import Request, urlopen
 
 from sqlalchemy.orm import Session  # noqa: TC002
@@ -196,6 +196,81 @@ class HttpAuditLogWriter:
             body,
             self.timeout_seconds,
         )
+
+
+def _row_to_audit_log_entry(row: AuditLogTable) -> AuditLogEntry:
+    """テーブル行を監査ログエントリへ変換する。"""
+    metadata: dict[str, str]
+    metadata_json = cast("str | None", row.metadata_json)
+    if not metadata_json:
+        metadata = {}
+    else:
+        try:
+            parsed = json.loads(metadata_json)
+        except json.JSONDecodeError:
+            parsed = {}
+
+        if isinstance(parsed, dict):
+            metadata = {str(key): str(value) for key, value in parsed.items()}
+        else:
+            metadata = {}
+
+    return AuditLogEntry(
+        actor_user_id=cast("str", row.actor_user_id),
+        actor_role=cast("str", row.actor_role),
+        resource=cast("str", row.resource),
+        action=cast("str", row.action),
+        result=cast("str", row.result),
+        occurred_at=cast("datetime", row.occurred_at),
+        target_resource_id=cast("str | None", row.target_resource_id),
+        error_type=cast("str | None", row.error_type),
+        metadata=metadata,
+    )
+
+
+def cleanup_expired_audit_logs(
+    *,
+    session: Session,
+    retention_days: int,
+    now: datetime | None = None,
+    archive_writer: AuditLogWriter | None = None,
+    batch_size: int = 500,
+    auto_commit: bool = False,
+) -> int:
+    """保持期限を超過した監査ログをアーカイブ後に削除する。"""
+    if retention_days <= 0:
+        raise ValueError("retention_days は正の値である必要があります")
+    if batch_size <= 0:
+        raise ValueError("batch_size は正の値である必要があります")
+
+    current = now or datetime.now(timezone.utc)  # noqa: UP017
+    cutoff = current - timedelta(days=retention_days)
+
+    expired_rows = (
+        session.query(AuditLogTable)
+        .filter(AuditLogTable.occurred_at <= cutoff)
+        .order_by(AuditLogTable.occurred_at.asc(), AuditLogTable.id.asc())
+        .limit(batch_size)
+        .all()
+    )
+
+    deleted_count = 0
+    for row in expired_rows:
+        if archive_writer is not None:
+            entry = _row_to_audit_log_entry(row)
+            try:
+                archive_writer.write(entry)
+            except Exception:
+                continue
+
+        session.delete(row)
+        deleted_count += 1
+
+    session.flush()
+    if auto_commit:
+        session.commit()
+
+    return deleted_count
 
 
 def sanitize_audit_metadata(metadata: Mapping[str, str] | None) -> dict[str, str]:
