@@ -6,6 +6,8 @@ from typing import TYPE_CHECKING, Any
 
 from shared.api_handlers import ApiResponse, execute_authorized_mutation
 from shared.csrf import create_csrf_token
+from shared.exceptions import AuthorizationError
+from shared.rbac import AUTHORIZATION_ERROR_MESSAGE
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping
@@ -156,6 +158,19 @@ DELETE_DAILY_REPORT_ENDPOINT_SPEC: dict[str, Any] = {
     },
 }
 
+SALES_EXPORT_ALLOWED_DATASETS_BY_ROLE: dict[str, set[str]] = {
+    "admin": {"*"},
+    "tax_accountant": {
+        "sales",
+        "expense",
+        "petty_cash",
+        "purchase",
+        "labor_cost_summary",
+        "profit_loss",
+        "kpi",
+    },
+}
+
 
 def _extract_target_resource_id(result: Mapping[str, Any], *, keys: tuple[str, ...]) -> str | None:
     """業務処理結果から監査ログ対象IDを抽出する。"""
@@ -164,6 +179,48 @@ def _extract_target_resource_id(result: Mapping[str, Any], *, keys: tuple[str, .
         if isinstance(value, str) and value:
             return value
     return None
+
+
+def _normalize_export_datasets(result: Mapping[str, Any]) -> set[str]:
+    """エクスポート結果のデータセット一覧を正規化する。"""
+    raw_datasets = result.get("datasets")
+    if raw_datasets is None:
+        return {"sales"}
+
+    if isinstance(raw_datasets, str):
+        candidates: tuple[object, ...] = (raw_datasets,)
+    elif isinstance(raw_datasets, (list, tuple, set)):
+        candidates = tuple(raw_datasets)
+    else:
+        raise AuthorizationError(AUTHORIZATION_ERROR_MESSAGE)
+
+    normalized: set[str] = set()
+    for candidate in candidates:
+        if not isinstance(candidate, str):
+            raise AuthorizationError(AUTHORIZATION_ERROR_MESSAGE)
+        dataset = candidate.strip().lower()
+        if not dataset:
+            raise AuthorizationError(AUTHORIZATION_ERROR_MESSAGE)
+        normalized.add(dataset)
+
+    if not normalized:
+        raise AuthorizationError(AUTHORIZATION_ERROR_MESSAGE)
+
+    return normalized
+
+
+def _enforce_sales_export_dataset_scope(role: str, result: Mapping[str, Any]) -> None:
+    """ロールごとの売上エクスポート対象制約を検証する。"""
+    allowed = SALES_EXPORT_ALLOWED_DATASETS_BY_ROLE.get(role.strip().lower())
+    if allowed is None:
+        raise AuthorizationError(AUTHORIZATION_ERROR_MESSAGE)
+
+    if "*" in allowed:
+        return
+
+    datasets = _normalize_export_datasets(result)
+    if not datasets.issubset(allowed):
+        raise AuthorizationError(AUTHORIZATION_ERROR_MESSAGE)
 
 
 def export_sales_data(
@@ -176,6 +233,12 @@ def export_sales_data(
     audit_log_writer: AuditLogWriter | None = None,
 ) -> ApiResponse:
     """売上エクスポートの疑似エンドポイント。"""
+
+    def operation(authorized_context: AuthContext) -> Mapping[str, Any]:
+        result = dict(sales_exporter(authorized_context))
+        _enforce_sales_export_dataset_scope(authorized_context.role, result)
+        return result
+
     return execute_authorized_mutation(
         context,
         resource="sales",
@@ -183,7 +246,7 @@ def export_sales_data(
         method=method,
         csrf_header_token=csrf_header_token,
         csrf_cookie_token=csrf_cookie_token,
-        operation=lambda authorized_context: dict(sales_exporter(authorized_context)),
+        operation=operation,
         audit_log_writer=audit_log_writer,
         target_resource_id_getter=lambda result: _extract_target_resource_id(
             result,

@@ -91,6 +91,81 @@ class TestBusinessApi:
         assert response.body["ok"] is True
         assert response.body["data"]["resource"] == "sales"
 
+    def test_export_sales_data_税理士の許可データセットは成功(self) -> None:
+        """税理士の許可データセットのみを含むエクスポートは成功する。"""
+
+        def sales_exporter(_: AuthContext) -> Mapping[str, Any]:
+            return {
+                "export_id": "export-allowed-001",
+                "resource": "sales",
+                "datasets": ["sales", "profit_loss", "kpi"],
+                "executed_by": "user_001",
+            }
+
+        context = AuthContext(user_id="user_001", role="tax_accountant", is_active=True)
+        csrf_token = create_csrf_token()
+
+        response = export_sales_data(
+            context,
+            method="POST",
+            csrf_header_token=csrf_token,
+            csrf_cookie_token=csrf_token,
+            sales_exporter=sales_exporter,
+        )
+
+        assert response.status_code == 200
+        assert response.body["ok"] is True
+
+    def test_export_sales_data_税理士の禁止データセットは403(self) -> None:
+        """税理士が禁止データセットを含む場合は403。"""
+
+        def sales_exporter(_: AuthContext) -> Mapping[str, Any]:
+            return {
+                "export_id": "export-forbidden-001",
+                "resource": "sales",
+                "datasets": ["sales", "payroll"],
+                "executed_by": "user_001",
+            }
+
+        context = AuthContext(user_id="user_001", role="tax_accountant", is_active=True)
+        csrf_token = create_csrf_token()
+
+        response = export_sales_data(
+            context,
+            method="POST",
+            csrf_header_token=csrf_token,
+            csrf_cookie_token=csrf_token,
+            sales_exporter=sales_exporter,
+        )
+
+        assert response.status_code == 403
+        assert response.body["ok"] is False
+
+    def test_export_sales_data_adminは任意データセットを許可(self) -> None:
+        """管理者は任意データセットを含むエクスポートを実行できる。"""
+
+        def sales_exporter(_: AuthContext) -> Mapping[str, Any]:
+            return {
+                "export_id": "export-admin-001",
+                "resource": "sales",
+                "datasets": ["sales", "payroll", "attendance"],
+                "executed_by": "admin_001",
+            }
+
+        context = AuthContext(user_id="admin_001", role="admin", is_active=True)
+        csrf_token = create_csrf_token()
+
+        response = export_sales_data(
+            context,
+            method="POST",
+            csrf_header_token=csrf_token,
+            csrf_cookie_token=csrf_token,
+            sales_exporter=sales_exporter,
+        )
+
+        assert response.status_code == 200
+        assert response.body["ok"] is True
+
     def test_export_sales_data_sample_店長は403(self) -> None:
         """店長は売上エクスポート不可。"""
         context = AuthContext(user_id="user_001", role="manager", is_active=True)

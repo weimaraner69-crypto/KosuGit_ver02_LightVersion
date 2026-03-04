@@ -484,6 +484,13 @@
 	- 次アクション:
 		- 実フレームワーク導入時にプロセス間共有ストア（Redis 等）へ状態を移行する
 
+- SEC-009 エクスポートAPI権限制御: 着手中
+	- 状態: 売上エクスポートAPIでロール別データセット制約を実装し、禁止データセットを `403` で拒否
+	- 反映: `export_sales_data`（`src/business/api.py`）で `datasets` を検証し、税理士ロールの許可範囲を強制
+	- 追加: データセット制約テスト（`tests/test_business_api.py`）
+	- 次アクション:
+		- 実データソース接続時にデータセット定義をドメインモデルへ昇格し、共通ポリシー化する
+
 - API接続テンプレート（SEC-004/005 の適用例）: 完了
 	- 追加: `src/shared/api_auth.py`, `tests/test_api_auth.py`
 	- 追加: `src/shared/api_handlers.py`, `tests/test_api_handlers.py`
@@ -506,6 +513,7 @@
 	- SEC-007監査ログ追加後の回帰: `./.venv/bin/python -m pytest tests/test_audit.py tests/test_api_handlers.py tests/test_business_api.py tests/test_csrf.py` → 44 passed
 	- SEC-007対象ID連携・永続化反映後の回帰: `./.venv/bin/python -m pytest tests/test_api_handlers.py tests/test_business_api.py tests/test_attendance_api.py tests/test_audit.py tests/test_csrf.py` → 55 passed
 	- SEC-008ログイン保護追加後の回帰: `./.venv/bin/python -m pytest tests/test_login_protection.py tests/test_auth_endpoints.py` → 14 passed
+	- SEC-009データセット制約追加後の回帰: `./.venv/bin/python -m pytest tests/test_business_api.py` → 23 passed
 
 #### Issue本文ドラフト（そのまま起票可）
 
