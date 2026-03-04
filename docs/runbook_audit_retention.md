@@ -72,6 +72,20 @@ uv run python scripts/run_audit_retention.py --retention-days 30 --batch-size 50
 - `AUDIT_RETENTION_DAYS`（未設定時は `30`）
 - `AUDIT_RETENTION_BATCH_SIZE`（未設定時は `500`）
 
+設定手順（GitHub UI）:
+
+1. リポジトリの `Settings` を開く
+1. `Secrets and variables` → `Actions` を開く
+1. `Variables` タブで `New repository variable` を選択
+1. 以下を登録する
+    - `AUDIT_RETENTION_DAYS`: 例 `30`
+    - `AUDIT_RETENTION_BATCH_SIZE`: 例 `500`
+
+運用上の推奨:
+
+- 初回は `workflow_dispatch` + `dry_run=true` で挙動確認してから定期実行へ移行する
+- 削除件数が想定より大きい場合は `AUDIT_RETENTION_BATCH_SIZE` を一時的に小さくする
+
 実行結果JSONは Artifact（`audit-retention-result-<run_id>`）として保存され、実行日時・cutoff・対象件数・削除件数を確認できる。
 Actions の Step Summary にも主要値（retention_days / dry_run / target_count / deleted_count）が出力される。
 
