@@ -102,6 +102,8 @@ python ci/policy_check.py
 
 セキュリティ・個人情報保護については [security.md](security.md) を参照してください。
 
+監査ログ保持期間運用の手順は [runbook_audit_retention.md](runbook_audit_retention.md) を参照してください。
+
 <a id="docs-spec-09"></a>
 ## ライセンス
 
