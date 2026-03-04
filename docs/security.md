@@ -151,6 +151,7 @@ logger.info(f"Action: update_salary, User: {user.user_id}, Target: {employee_id}
 - 実装箇所: 共通モデル/ライタは `src/shared/audit.py`（DB永続化 + HTTP外部転送 + 複合ライタ + Retention削除ユーティリティ）、監査ログテーブルは `src/shared/tables.py`、API接続は `src/shared/api_handlers.py`、業務API接続は `src/business/api.py` と `src/attendance/api.py`。
 - 機微情報保護: `metadata` は機微情報キー（例: `email`, `password`, `token`, `salary`）を除外して保存し、監査ログ書き込み失敗は業務処理へ影響させない（レスポンスは維持）。
 - 次アクション: 定期実行ジョブ（`.github/workflows/audit-retention.yml`）と運用Runbook（`docs/runbook_audit_retention.md`）に沿って運用し、実行ログを監査証跡として保管する。
+- 運用設定: Repository Variables の具体設定手順は `docs/runbook_audit_retention.md` の「Repository Variables（任意）」を参照する。
 
 ## 認証・認可
 
