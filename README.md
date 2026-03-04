@@ -467,13 +467,15 @@
 		- 実フレームワーク導入時にヘッダ/Cookie抽出をミドルウェアで共通化
 
 - SEC-007 監査ログ（重要操作）実装: 完了
-	- 状態: API共通テンプレートへの監査接続、DB永続化、対象ID実連携まで完了
+	- 状態: API共通テンプレートへの監査接続、DB永続化、対象ID実連携、外部HTTP転送、Retention運用（定期実行）まで完了
 	- 追加: `src/shared/audit.py`, `src/shared/tables.py`, `tests/test_audit.py`
+	- 追加: `src/shared/audit_retention.py`, `scripts/run_audit_retention.py`, `tests/test_audit_retention.py`
+	- 追加: `.github/workflows/audit-retention.yml`, `docs/runbook_audit_retention.md`
 	- 追加: `execute_authorized_action` / `execute_authorized_mutation` の監査ログ対応（`src/shared/api_handlers.py`）
 	- 反映: ユーザーID・ロール・対象ID・操作種別・結果・エラー種別の記録、機微情報キー除外
 	- 反映: `business` / `attendance` 疑似エンドポイントで、業務結果の `export_id` / `report_id` / `record_id` から `target_resource_id` を監査ログへ連携
 	- 次アクション:
-		- 外部ログ基盤への転送や保持期間運用の実装（必要時）
+		- Runbookに従って定期実行を継続し、Step Summary / Artifact を監査証跡として保管
 
 - API接続テンプレート（SEC-004/005 の適用例）: 完了
 	- 追加: `src/shared/api_auth.py`, `tests/test_api_auth.py`
