@@ -497,10 +497,11 @@
 	- 反映: `ApiResponse`（`src/shared/api_handlers.py`）へヘッダー自動付与を接続
 	- 反映: `adapt_api_response_to_http`（`src/shared/http_response_adapter.py`）で `ApiResponse.headers` / `set_cookies` のHTTP応答転写雛形を追加
 	- 反映: `adapt_api_response_to_fastapi`（`src/shared/fastapi_response_adapter.py`）で FastAPI `JSONResponse` への変換雛形を追加
+	- 反映: `create_fastapi_app`（`src/web/fastapi_app.py`）で最小ルーター（`GET /health`）を追加
 	- 反映: `SecurityRuntimeConfig` に `security_headers` を追加し、環境変数でヘッダー/CSPポリシーを制御可能化
-	- 追加: SEC-010設定・接続テスト（`tests/test_security_config.py`, `tests/test_api_handlers.py`, `tests/test_auth_endpoints.py`, `tests/test_http_response_adapter.py`, `tests/test_fastapi_response_adapter.py`）
+	- 追加: SEC-010設定・接続テスト（`tests/test_security_config.py`, `tests/test_api_handlers.py`, `tests/test_auth_endpoints.py`, `tests/test_http_response_adapter.py`, `tests/test_fastapi_response_adapter.py`, `tests/test_fastapi_app.py`）
 	- 次アクション:
-		- FastAPI ルーター層で `adapt_api_response_to_fastapi` を利用し、`/csp-report` 受信エンドポイントを接続する
+		- `GET /health` 以外の業務APIへ段階的にルーターを拡張し、`/csp-report` 受信エンドポイントを接続する
 
 - SEC-011 セキュリティテスト整備: 完了（現行構成）
 	- 状態: 主要防御機能（401/403/CSRF/Cookie属性/ログインロック/監査マスキング）の回帰テストを追加
@@ -543,6 +544,7 @@
 	- SEC-010レスポンス接続後の回帰: `./.venv/bin/python -m pytest tests/test_api_handlers.py tests/test_auth_endpoints.py tests/test_security_config.py` → 34 passed
 	- SEC-010HTTP応答アダプタ追加後の回帰: `./.venv/bin/python -m pytest tests/test_http_response_adapter.py tests/test_api_handlers.py tests/test_auth_endpoints.py` → 30 passed
 	- SEC-010FastAPI応答アダプタ追加後の回帰: `./.venv/bin/python -m pytest tests/test_fastapi_response_adapter.py` → 2 passed / 0-1 skipped
+	- SEC-010FastAPI最小ルーター追加後の回帰: `./.venv/bin/python -m pytest tests/test_fastapi_app.py` → 1 passed / 0-1 skipped
 	- SEC-011セキュリティ回帰テスト追加後の回帰: `./.venv/bin/python -m pytest tests/test_security_regression.py` → 6 passed
 	- SEC-003共通エラーハンドラ追加後の回帰: `./.venv/bin/python -m pytest tests/test_error_handling.py tests/test_api_auth.py tests/test_api_handlers.py` → 24 passed
 
