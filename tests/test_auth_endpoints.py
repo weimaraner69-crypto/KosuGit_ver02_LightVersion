@@ -38,6 +38,9 @@ def test_login_with_password_正常系_cookieが発行される() -> None:
     assert cookie.secure is True
     assert cookie.http_only is True
     assert cookie.same_site == "Lax"
+    assert response.headers["X-Content-Type-Options"] == "nosniff"
+    assert response.headers["X-Frame-Options"] == "DENY"
+    assert response.headers["Referrer-Policy"] == "strict-origin-when-cross-origin"
 
 
 def test_login_with_password_httpアクセスは拒否() -> None:

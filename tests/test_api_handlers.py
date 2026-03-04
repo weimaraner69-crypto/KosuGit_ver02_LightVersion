@@ -80,6 +80,53 @@ class TestSampleHandlers:
 class TestExecuteAuthorizedAction:
     """共通テンプレートのテスト。"""
 
+    def test_execute_authorized_action_セキュリティヘッダーが付与される(
+        self,
+        monkeypatch,
+    ) -> None:
+        """ApiResponse へ SEC-010 ヘッダーが付与される。"""
+        monkeypatch.setenv("CSP_REPORT_ONLY_ENABLED", "true")
+
+        def operation(_: AuthContext) -> Mapping[str, Any]:
+            return {"result": "ok"}
+
+        context = AuthContext(user_id="user_001", role="admin", is_active=True)
+
+        response = execute_authorized_action(
+            context,
+            resource="sales",
+            action="read",
+            operation=operation,
+        )
+
+        assert response.status_code == 200
+        assert response.headers["X-Content-Type-Options"] == "nosniff"
+        assert response.headers["X-Frame-Options"] == "DENY"
+        assert response.headers["Referrer-Policy"] == "strict-origin-when-cross-origin"
+        assert "Content-Security-Policy-Report-Only" in response.headers
+
+    def test_execute_authorized_action_csp_report_only無効時はヘッダー未付与(
+        self,
+        monkeypatch,
+    ) -> None:
+        """CSP report-only を無効化した場合はCSPヘッダーを付与しない。"""
+        monkeypatch.setenv("CSP_REPORT_ONLY_ENABLED", "false")
+
+        def operation(_: AuthContext) -> Mapping[str, Any]:
+            return {"result": "ok"}
+
+        context = AuthContext(user_id="user_001", role="admin", is_active=True)
+
+        response = execute_authorized_action(
+            context,
+            resource="sales",
+            action="read",
+            operation=operation,
+        )
+
+        assert response.status_code == 200
+        assert "Content-Security-Policy-Report-Only" not in response.headers
+
     def test_execute_authorized_action_想定外例外は500一般化(self) -> None:
         """業務処理例外は一般化された500で返る。"""
 

@@ -2,19 +2,32 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 from shared.api_auth import authorize_api_request, to_api_error_response
 from shared.audit import AuditLogWriter, write_audit_log
 from shared.csrf import validate_csrf_tokens
 from shared.error_handling import log_internal_error
+from shared.security_config import build_security_headers, get_security_runtime_config
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping
 
     from shared.auth import AuthContext
     from shared.session import SessionCookie
+
+
+def _build_default_response_headers() -> dict[str, str]:
+    """APIレスポンスへ付与する既定ヘッダーを構築する。"""
+    try:
+        return build_security_headers(get_security_runtime_config())
+    except Exception as error:
+        log_internal_error(
+            error,
+            context={"component": "api_response_headers"},
+        )
+        return {}
 
 
 @dataclass(frozen=True)
@@ -24,6 +37,7 @@ class ApiResponse:
     status_code: int
     body: dict[str, Any]
     set_cookies: tuple[SessionCookie, ...] = ()
+    headers: dict[str, str] = field(default_factory=_build_default_response_headers)
 
     def __post_init__(self) -> None:
         """不変条件の検証。"""
@@ -31,6 +45,11 @@ class ApiResponse:
             raise ValueError("status_code は 100〜599 である必要があります")
         if not self.body:
             raise ValueError("body は必須です")
+        for key, value in self.headers.items():
+            if not key:
+                raise ValueError("headers のキーは必須です")
+            if "\n" in key or "\r" in key or "\n" in value or "\r" in value:
+                raise ValueError("headers に改行は指定できません")
 
 
 def _resolve_target_resource_id(

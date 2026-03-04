@@ -494,10 +494,11 @@
 - SEC-010 セキュリティヘッダー/CSP段階導入: 完了（現行構成）
 	- 状態: セキュリティヘッダー（`X-Content-Type-Options` / `X-Frame-Options` / `Referrer-Policy`）と CSP `report-only` 設定を共通化
 	- 反映: `build_security_headers`（`src/shared/security_config.py`）でヘッダー生成を追加
+	- 反映: `ApiResponse`（`src/shared/api_handlers.py`）へヘッダー自動付与を接続
 	- 反映: `SecurityRuntimeConfig` に `security_headers` を追加し、環境変数でヘッダー/CSPポリシーを制御可能化
-	- 追加: SEC-010設定テスト（`tests/test_security_config.py`）
+	- 追加: SEC-010設定・接続テスト（`tests/test_security_config.py`, `tests/test_api_handlers.py`, `tests/test_auth_endpoints.py`）
 	- 次アクション:
-		- 実フレームワーク導入時に全レスポンスへヘッダーを付与し、`/csp-report` 受信エンドポイントを接続する
+		- 実フレームワーク導入時にHTTPレスポンスオブジェクトへ `ApiResponse.headers` を転写し、`/csp-report` 受信エンドポイントを接続する
 
 - SEC-011 セキュリティテスト整備: 完了（現行構成）
 	- 状態: 主要防御機能（401/403/CSRF/Cookie属性/ログインロック/監査マスキング）の回帰テストを追加
@@ -537,6 +538,7 @@
 	- SEC-008ログイン保護追加後の回帰: `./.venv/bin/python -m pytest tests/test_login_protection.py tests/test_auth_endpoints.py` → 14 passed
 	- SEC-009データセット制約追加後の回帰: `./.venv/bin/python -m pytest tests/test_business_api.py` → 23 passed
 	- SEC-010セキュリティヘッダー/CSP追加後の回帰: `./.venv/bin/python -m pytest tests/test_security_config.py` → 7 passed
+	- SEC-010レスポンス接続後の回帰: `./.venv/bin/python -m pytest tests/test_api_handlers.py tests/test_auth_endpoints.py tests/test_security_config.py` → 34 passed
 	- SEC-011セキュリティ回帰テスト追加後の回帰: `./.venv/bin/python -m pytest tests/test_security_regression.py` → 6 passed
 	- SEC-003共通エラーハンドラ追加後の回帰: `./.venv/bin/python -m pytest tests/test_error_handling.py tests/test_api_auth.py tests/test_api_handlers.py` → 24 passed
 
