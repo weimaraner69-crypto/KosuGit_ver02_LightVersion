@@ -1,0 +1,66 @@
+name: Audit Retention
+
+on:
+    schedule:
+        - cron: "15 2 * * *"
+    workflow_dispatch:
+        inputs:
+            retention_days:
+                description: "保持日数"
+                required: false
+                default: "30"
+            batch_size:
+                description: "1回の処理件数上限"
+                required: false
+                default: "500"
+            dry_run:
+                description: "削除を実行せず件数確認のみ"
+                required: false
+                default: false
+                type: boolean
+
+permissions:
+    contents: read
+
+concurrency:
+    group: audit-retention-${{ github.ref }}
+    cancel-in-progress: false
+
+jobs:
+    run-retention:
+        runs-on: ubuntu-latest
+        timeout-minutes: 15
+
+        env:
+            RETENTION_DAYS: ${{ github.event_name == 'workflow_dispatch' && inputs.retention_days || vars.AUDIT_RETENTION_DAYS || '30' }}
+            BATCH_SIZE: ${{ github.event_name == 'workflow_dispatch' && inputs.batch_size || vars.AUDIT_RETENTION_BATCH_SIZE || '500' }}
+            DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run || 'false' }}
+
+        steps:
+            - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+            - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+              with:
+                  python-version: "3.11"
+
+            - uses: astral-sh/setup-uv@eac588ad8def6316056a12d4907a9d4d84ff7a3b # v7.3.0
+              with:
+                  enable-cache: true
+
+            - name: Sync dependencies
+              run: uv sync --all-extras --dev
+
+            - name: Run audit retention (dry-run)
+              if: env.DRY_RUN == 'true'
+              run: |
+                  uv run python scripts/run_audit_retention.py \
+                    --retention-days "${RETENTION_DAYS}" \
+                    --batch-size "${BATCH_SIZE}" \
+                    --dry-run
+
+            - name: Run audit retention
+              if: env.DRY_RUN != 'true'
+              run: |
+                  uv run python scripts/run_audit_retention.py \
+                    --retention-days "${RETENTION_DAYS}" \
+                    --batch-size "${BATCH_SIZE}"

@@ -51,27 +51,28 @@ print({"cutoff": cutoff.isoformat(), "target_count": target_count})
 
 ### 3. Retention 処理を実行
 
-```python
-from datetime import datetime, timezone
-from sqlalchemy.orm import Session
-
-from shared.audit import cleanup_expired_audit_logs
-from shared.database.connection import engine
-
-retention_days = 30
-
-with Session(engine) as session:
-    deleted_count = cleanup_expired_audit_logs(
-        session=session,
-        retention_days=retention_days,
-        now=datetime.now(timezone.utc),
-        archive_writer=None,
-        batch_size=500,
-        auto_commit=True,
-    )
-
-print({"deleted_count": deleted_count})
+```bash
+uv run python scripts/run_audit_retention.py --retention-days 30 --batch-size 500
 ```
+
+`--dry-run` を付与すると削除せず対象件数のみ確認できる。
+
+```bash
+uv run python scripts/run_audit_retention.py --retention-days 30 --batch-size 500 --dry-run
+```
+
+### 4. GitHub Actions 定期実行
+
+- ワークフロー: `.github/workflows/audit-retention.yml`
+- 実行タイミング: 毎日 02:15 UTC（`cron: 15 2 * * *`）
+- 手動実行: `workflow_dispatch` から `retention_days` / `batch_size` / `dry_run` を指定可能
+
+#### Repository Variables（任意）
+
+- `AUDIT_RETENTION_DAYS`（未設定時は `30`）
+- `AUDIT_RETENTION_BATCH_SIZE`（未設定時は `500`）
+
+ワークフローの標準出力JSONは、実行日時・cutoff・対象件数・削除件数を含み、運用証跡として利用できる。
 
 ## アーカイブ併用時の注意
 

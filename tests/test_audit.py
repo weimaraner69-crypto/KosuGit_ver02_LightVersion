@@ -4,7 +4,10 @@ from __future__ import annotations
 
 import json
 from datetime import datetime, timedelta, timezone
-from typing import cast
+from typing import TYPE_CHECKING, cast
+
+if TYPE_CHECKING:
+    from collections.abc import Mapping
 
 import pytest
 from sqlalchemy import create_engine
@@ -173,7 +176,7 @@ def test_http_audit_log_writer_外部転送ペイロードを送信できる() -
 
     def fake_transport(
         endpoint_url: str,
-        headers: dict[str, str],
+        headers: Mapping[str, str],
         body: bytes,
         timeout_seconds: float,
     ) -> None:
