@@ -6,13 +6,14 @@ import json
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Protocol
+from urllib.request import Request, urlopen
 
 from sqlalchemy.orm import Session  # noqa: TC002
 
 from shared.tables import AuditLogTable
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping
+    from collections.abc import Callable, Mapping
 
 PII_RELATED_KEYS = {
     "name",
@@ -77,6 +78,21 @@ class InMemoryAuditLogWriter:
 
 
 @dataclass
+class CompositeAuditLogWriter:
+    """複数ライタへ監査ログを書き込む実装。"""
+
+    writers: tuple[AuditLogWriter, ...]
+
+    def write(self, entry: AuditLogEntry) -> None:
+        """登録済みライタへ順次書き込み、失敗ライタはスキップする。"""
+        for writer in self.writers:
+            try:
+                writer.write(entry)
+            except Exception:
+                continue
+
+
+@dataclass
 class SqlAlchemyAuditLogWriter:
     """SQLAlchemy を利用した監査ログ永続化実装。"""
 
@@ -101,6 +117,85 @@ class SqlAlchemyAuditLogWriter:
 
         if self.auto_commit:
             self.session.commit()
+
+
+def _default_http_transport(
+    endpoint_url: str,
+    headers: Mapping[str, str],
+    body: bytes,
+    timeout_seconds: float,
+) -> None:
+    """HTTP POST で監査ログを外部基盤へ転送する。"""
+    request = Request(
+        endpoint_url,
+        data=body,
+        headers=dict(headers),
+        method="POST",
+    )
+    with urlopen(request, timeout=timeout_seconds):
+        return
+
+
+def build_audit_log_payload(entry: AuditLogEntry) -> dict[str, object | None]:
+    """監査ログエントリを外部転送向けJSONペイロードへ変換する。"""
+    return {
+        "actor_user_id": entry.actor_user_id,
+        "actor_role": entry.actor_role,
+        "resource": entry.resource,
+        "action": entry.action,
+        "result": entry.result,
+        "occurred_at": entry.occurred_at.isoformat(),
+        "target_resource_id": entry.target_resource_id,
+        "error_type": entry.error_type,
+        "metadata": dict(entry.metadata),
+    }
+
+
+@dataclass
+class HttpAuditLogWriter:
+    """HTTPで監査ログを外部ログ基盤へ転送する実装。"""
+
+    endpoint_url: str
+    timeout_seconds: float = 3.0
+    bearer_token: str | None = None
+    extra_headers: Mapping[str, str] = field(default_factory=dict)
+    transport: Callable[[str, Mapping[str, str], bytes, float], None] | None = None
+
+    def __post_init__(self) -> None:
+        """不変条件の検証。"""
+        if not self.endpoint_url:
+            raise ValueError("endpoint_url は必須です")
+        if not (
+            self.endpoint_url.startswith("https://")
+            or self.endpoint_url.startswith("http://")
+        ):
+            raise ValueError("endpoint_url は http:// または https:// で始まる必要があります")
+        if self.timeout_seconds <= 0:
+            raise ValueError("timeout_seconds は正の値である必要があります")
+
+    def write(self, entry: AuditLogEntry) -> None:
+        """監査ログをHTTP転送する。"""
+        headers = {
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+            **dict(self.extra_headers),
+        }
+        if self.bearer_token:
+            headers["Authorization"] = f"Bearer {self.bearer_token}"
+
+        body = json.dumps(
+            build_audit_log_payload(entry),
+            ensure_ascii=False,
+            sort_keys=True,
+        ).encode("utf-8")
+
+        transport = self.transport or _default_http_transport
+        transport(
+            self.endpoint_url,
+            headers,
+            body,
+            self.timeout_seconds,
+        )
 
 
 def sanitize_audit_metadata(metadata: Mapping[str, str] | None) -> dict[str, str]:
