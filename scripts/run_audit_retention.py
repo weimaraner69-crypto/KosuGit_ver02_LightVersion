@@ -7,6 +7,7 @@ import argparse
 import json
 import logging
 import sys
+from pathlib import Path
 
 from shared.audit_retention import run_audit_log_retention
 from shared.database import init_db
@@ -42,6 +43,12 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="削除せず対象件数のみ確認する",
     )
+    parser.add_argument(
+        "--output-path",
+        type=Path,
+        default=None,
+        help="実行結果JSONの保存先ファイルパス（任意）",
+    )
     return parser.parse_args()
 
 
@@ -67,7 +74,13 @@ def main() -> int:
             result.dry_run,
             result.cutoff.isoformat(),
         )
-        print(json.dumps(result.to_dict(), ensure_ascii=False, sort_keys=True))
+        result_json = json.dumps(result.to_dict(), ensure_ascii=False, sort_keys=True)
+        if args.output_path is not None:
+            args.output_path.parent.mkdir(parents=True, exist_ok=True)
+            args.output_path.write_text(result_json + "\n", encoding="utf-8")
+            logger.info("Retention結果を保存: %s", args.output_path)
+
+        print(result_json)
         return 0
     except Exception as error:
         logger.exception("Retention実行に失敗しました: %s", error)
