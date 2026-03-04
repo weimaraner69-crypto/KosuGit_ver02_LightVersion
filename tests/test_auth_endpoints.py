@@ -5,7 +5,12 @@ from __future__ import annotations
 import pytest
 
 from shared.auth import GENERIC_AUTH_ERROR_MESSAGE
-from shared.auth_endpoints import is_oauth_callback_request, login_with_password
+from shared.auth_endpoints import (
+    GENERIC_LOCKOUT_ERROR_MESSAGE,
+    is_oauth_callback_request,
+    login_with_password,
+)
+from shared.login_protection import InMemoryLoginProtection, LoginProtectionConfig
 from shared.security import User
 
 
@@ -162,3 +167,91 @@ def test_is_oauth_callback_request_対象パス() -> None:
 def test_is_oauth_callback_request_対象外パス() -> None:
     """対象外パスは偽。"""
     assert is_oauth_callback_request("/api/health") is False
+
+
+def test_login_with_password_失敗閾値超過後はロックされる() -> None:
+    """失敗回数が閾値を超えた後の試行はロックされる。"""
+
+    def authenticate(_: str, __: str) -> User | None:
+        return None
+
+    login_protection = InMemoryLoginProtection(
+        config=LoginProtectionConfig(max_failed_attempts=3, lock_minutes=15),
+    )
+
+    for _ in range(3):
+        failed_response = login_with_password(
+            request_scheme="https",
+            request_headers={},
+            username="john_doe",
+            password="wrong",
+            authenticate=authenticate,
+            login_protection=login_protection,
+        )
+        assert failed_response.status_code == 401
+
+    locked_response = login_with_password(
+        request_scheme="https",
+        request_headers={},
+        username="john_doe",
+        password="wrong",
+        authenticate=authenticate,
+        login_protection=login_protection,
+    )
+
+    assert locked_response.status_code == 429
+    assert locked_response.body["ok"] is False
+    assert locked_response.body["error"] == GENERIC_LOCKOUT_ERROR_MESSAGE
+
+
+def test_login_with_password_成功時は失敗カウントがリセットされる() -> None:
+    """認証成功時は失敗カウントがリセットされる。"""
+
+    def authenticate(username: str, password: str) -> User | None:
+        if username == "john_doe" and password == "password":
+            return User(user_id="user_001", username="john_doe", role="manager", is_active=True)
+        return None
+
+    login_protection = InMemoryLoginProtection(
+        config=LoginProtectionConfig(max_failed_attempts=2, lock_minutes=15),
+    )
+
+    first_failed_response = login_with_password(
+        request_scheme="https",
+        request_headers={},
+        username="john_doe",
+        password="wrong",
+        authenticate=authenticate,
+        login_protection=login_protection,
+    )
+    assert first_failed_response.status_code == 401
+
+    success_response = login_with_password(
+        request_scheme="https",
+        request_headers={},
+        username="john_doe",
+        password="password",
+        authenticate=authenticate,
+        login_protection=login_protection,
+    )
+    assert success_response.status_code == 200
+
+    second_failed_response = login_with_password(
+        request_scheme="https",
+        request_headers={},
+        username="john_doe",
+        password="wrong",
+        authenticate=authenticate,
+        login_protection=login_protection,
+    )
+    assert second_failed_response.status_code == 401
+
+    not_locked_response = login_with_password(
+        request_scheme="https",
+        request_headers={},
+        username="john_doe",
+        password="wrong",
+        authenticate=authenticate,
+        login_protection=login_protection,
+    )
+    assert not_locked_response.status_code == 401

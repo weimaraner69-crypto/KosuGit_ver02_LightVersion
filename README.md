@@ -426,17 +426,16 @@
 <a id="spec-14"></a>
 ### 14. 今週着手する優先3件（推奨）
 
-- 優先1: SEC-008 ログイン保護（レート制限・一時ロック）
-	- 理由: 認証基盤は整ったため、次は総当たり攻撃耐性を優先して強化する。
-
-- 優先2: SEC-009 エクスポートAPI権限制御
+- 優先1: SEC-009 エクスポートAPI権限制御
 	- 理由: 監査ログ基盤は整備済みのため、機微データ流出リスクを先に下げる。
 
-- 優先3: SEC-011 セキュリティテスト整備
-	- 理由: 既存防御機能（認証/RBAC/CSRF/監査）の退行検知をCIで担保する。
+- 優先2: SEC-011 セキュリティテスト整備
+	- 理由: 既存防御機能（認証/RBAC/CSRF/監査/ログイン保護）の退行検知をCIで担保する。
+
+- 優先3: SEC-003 共通エラーハンドラ実装
+	- 理由: 利用者向けエラーの一般化と内部ログ分離を共通化し、情報漏えいリスクを抑える。
 
 - 今週対象外（次週候補）
-	- SEC-003（共通エラーハンドラ実装）
 	- SEC-010（セキュリティヘッダー/CSP段階導入）
 
 #### 実装進捗（2026年3月5日時点）
@@ -477,6 +476,14 @@
 	- 次アクション:
 		- Runbookに従って定期実行を継続し、Step Summary / Artifact を監査証跡として保管
 
+- SEC-008 ログイン保護（レート制限・一時ロック）: 完了（現行構成）
+	- 状態: ログイン失敗回数をユーザー単位で記録し、閾値超過時に一時ロックする保護を実装済み
+	- 追加: `src/shared/login_protection.py`, `tests/test_login_protection.py`
+	- 反映: `login_with_password`（`src/shared/auth_endpoints.py`）へ保護ロジックを統合
+	- 反映: ロック中は `429` を返し、認証成功時は失敗カウントをリセット
+	- 次アクション:
+		- 実フレームワーク導入時にプロセス間共有ストア（Redis 等）へ状態を移行する
+
 - API接続テンプレート（SEC-004/005 の適用例）: 完了
 	- 追加: `src/shared/api_auth.py`, `tests/test_api_auth.py`
 	- 追加: `src/shared/api_handlers.py`, `tests/test_api_handlers.py`
@@ -498,6 +505,7 @@
 	- API仕様定数の追加分再確認: `./.venv/bin/python -m pytest tests/test_attendance_api.py tests/test_business_api.py` → 10 passed
 	- SEC-007監査ログ追加後の回帰: `./.venv/bin/python -m pytest tests/test_audit.py tests/test_api_handlers.py tests/test_business_api.py tests/test_csrf.py` → 44 passed
 	- SEC-007対象ID連携・永続化反映後の回帰: `./.venv/bin/python -m pytest tests/test_api_handlers.py tests/test_business_api.py tests/test_attendance_api.py tests/test_audit.py tests/test_csrf.py` → 55 passed
+	- SEC-008ログイン保護追加後の回帰: `./.venv/bin/python -m pytest tests/test_login_protection.py tests/test_auth_endpoints.py` → 14 passed
 
 #### Issue本文ドラフト（そのまま起票可）
 
