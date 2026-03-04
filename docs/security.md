@@ -143,6 +143,15 @@ class Employee:
 logger.info(f"Action: update_salary, User: {user.user_id}, Target: {employee_id}")
 ```
 
+監査ログの実装方針（SEC-007）：
+
+- 実装状況（2026年3月4日時点）: SEC-007 は完了。API共通テンプレートで成功/失敗の監査記録を実施し、SQLAlchemy ライタで監査ログのDB永続化を実装済み。
+- 対象ID実連携: 業務処理結果の `export_id` / `report_id` / `record_id` から `target_resource_id` を監査ログへ連携する。
+- 記録対象（最小）: 実行ユーザーID、ユーザーロール、対象リソースID、操作種別（read/create/update/delete/approve/export など）、実行結果（success/failure）、失敗時エラー種別。
+- 実装箇所: 共通モデル/ライタは `src/shared/audit.py`、監査ログテーブルは `src/shared/tables.py`、API接続は `src/shared/api_handlers.py`、業務API接続は `src/business/api.py` と `src/attendance/api.py`。
+- 機微情報保護: `metadata` は機微情報キー（例: `email`, `password`, `token`, `salary`）を除外して保存し、監査ログ書き込み失敗は業務処理へ影響させない（レスポンスは維持）。
+- 次アクション: 外部ログ基盤への転送や保持期間運用の実装（必要時）。
+
 ## 認証・認可
 
 ### パスワード管理
@@ -186,6 +195,33 @@ def require_role(user: User, required_role: str) -> None:
     if user.role != required_role:
         raise AuthorizationError(f"{required_role} ロールが必要です")
 ```
+
+## Webフロントエンドセキュリティ方針
+
+### HTTPS を必須化
+
+- 本番環境ではすべての画面・API通信を HTTPS のみ許可する
+- HTTP リクエストは HTTPS に強制リダイレクトする
+
+### 認証Cookie の基本設定
+
+- 認証セッションは Cookie ベースで管理する
+- Cookie には `Secure=True` / `HttpOnly=True` / `SameSite=Lax` を必須設定とする
+- 認証トークンを `localStorage` / `sessionStorage` に保存しない
+- Google / LINE 連携などで要件上必要な場合のみ、影響範囲を限定して設定を調整する
+
+### CSRF 対策
+
+- 更新系リクエスト（POST / PUT / PATCH / DELETE）はすべて CSRF 防御対象とする
+- `SameSite=Lax` に加えて CSRF トークン検証を併用する
+- フォーム送信と API 呼び出しの両方で同一ポリシーを適用する
+- フレームワーク未導入段階では `shared.csrf` の共通関数を利用し、更新系のみ検証する（`create_csrf_token` / `requires_csrf_validation` / `validate_csrf_tokens`）
+
+### エラーハンドリング
+
+- 利用者向けのエラーメッセージは一般化し、内部情報（SQL 文・スタックトレース・ライブラリ内部情報）を表示しない
+- 詳細な例外情報は内部ログのみに記録し、運用担当者のみが参照できるようにする
+- ログ出力時も機微情報（個人情報・トークン・パスワード等）は記録しない
 
 ## 入力検証
 
@@ -368,7 +404,11 @@ def test_パスワードはハッシュ化される() -> None:
 - [ ] 入力値をサニタイズしている
 - [ ] SQL インジェクション対策をしている
 - [ ] XSS 対策をしている
+- [ ] HTTPS 強制（HTTP→HTTPS リダイレクト）を設定している
+- [ ] 認証Cookieに Secure / HttpOnly / SameSite を設定している
+- [ ] 更新系APIに CSRF 対策（SameSite + トークン検証）を実装している
 - [ ] 認証・認可を実装している
+- [ ] 利用者向けエラーメッセージを一般化し、詳細エラーは内部ログのみに記録している
 - [ ] トランザクション処理を実装している
 - [ ] データバックアップ機能を実装している
 - [ ] セキュリティテストを作成している
