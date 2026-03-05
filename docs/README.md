@@ -96,7 +96,7 @@ ruff check src tests
 python ci/policy_check.py
 ```
 
-`policy_check.py` は `.env.example` の機密キー（`TOKEN` / `SECRET` / `PASSWORD` / `PASSWD` / `API_KEY`）に非空値がある場合も検知します。
+`policy_check.py` は `.env.example` の機密キー（`TOKEN` / `SECRET` / `PASSWORD` / `PASSWD` / `API_KEY`）に非空値がある状態も検知します。
 
 <a id="docs-spec-08"></a>
 ## 開発

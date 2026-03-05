@@ -72,7 +72,7 @@ password_hash, salt = hash_password("my_password")
 - JWT トークン: `eyJ*`
 - プライベートキー: `-----BEGIN PRIVATE KEY-----`
 - パスワード: `password = "..."`, `passwd = "..."`
-- `.env.example` の機密キー（`TOKEN` / `SECRET` / `PASSWORD` / `PASSWD` / `API_KEY`）に非空値が設定されている状態
+- `.env.example` の機密キー（`TOKEN` / `SECRET` / `PASSWORD` / `PASSWD` / `API_KEY`）に非空値がある状態
 
 ## 個人情報保護
 
