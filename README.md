@@ -522,7 +522,7 @@
 - SEC-011 セキュリティテスト整備: 完了（現行構成）
 	- 状態: 主要防御機能（401/403/CSRF/Cookie属性/ログインロック/監査マスキング）の回帰テストを追加
 	- 追加: `tests/test_security_regression.py`
-	- 反映: `ci/policy_check.py` で `.env.example` の機密キー（`TOKEN` / `SECRET` / `PASSWORD` / `PASSWD` / `API_KEY`）に非空値がある状態を検知
+	- 反映: `ci/policy_check.py` で `.env.example` の機密キー（`TOKEN` / `SECRET` / `PASSWORD` / `PASSWD` / `API_KEY`）に非空値がある状態を検知（検知対象の詳細は `docs/security.md` を参照）
 	- 次アクション:
 		- CIでセキュリティ回帰テスト群を明示ジョブ化し、失敗時通知を運用へ連携する
 
