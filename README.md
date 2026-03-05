@@ -523,8 +523,10 @@
 	- 状態: 主要防御機能（401/403/CSRF/Cookie属性/ログインロック/監査マスキング）の回帰テストを追加
 	- 追加: `tests/test_security_regression.py`
 	- 反映: `ci/policy_check.py` で `.env.example` の機密キー（`TOKEN` / `SECRET` / `PASSWORD` / `PASSWD` / `API_KEY`）に非空値がある状態を検知（検知対象の詳細は `docs/security.md` を参照）
+	- 反映: `.github/workflows/ci.yml` に `security-regression` ジョブを追加し、セキュリティ回帰テスト群（`tests/test_security_regression.py`, `tests/test_csrf.py`, `tests/test_login_protection.py`, `tests/test_security_config.py`）を明示実行
+	- 反映: `security-regression` 失敗時に（`pull_request` イベント）PRへ自動コメントを投稿し、Step Summary に運用確認手順を出力
 	- 次アクション:
-		- CIでセキュリティ回帰テスト群を明示ジョブ化し、失敗時通知を運用へ連携する
+		- PRコメント通知を一次対応フローへ組み込み、担当者アサイン・再実行判断の運用手順を確定する
 
 - SEC-003 共通エラーハンドラ実装: 完了（現行構成）
 	- 状態: 利用者向け一般化メッセージと内部ログ向け詳細分離、機微情報マスキングを共通化
@@ -572,6 +574,7 @@
 	- SEC-010CSP優先通知（directive別閾値上書き）追加後の回帰: `./.venv/bin/python -m pytest tests/test_csp_report.py tests/test_fastapi_app.py` → 30 passed / 13 skipped
 	- SEC-010CSP優先通知（override設定厳格化）追加後の回帰: `./.venv/bin/python -m pytest tests/test_csp_report.py tests/test_fastapi_app.py` → 31 passed / 13 skipped
 	- SEC-011セキュリティ回帰テスト追加後の回帰: `./.venv/bin/python -m pytest tests/test_security_regression.py` → 6 passed
+	- SEC-011security-regressionジョブ相当テスト追加後の回帰: `./.venv/bin/python -m pytest tests/test_security_regression.py tests/test_csrf.py tests/test_login_protection.py tests/test_security_config.py` → 26 passed
 	- SEC-011policy_check（`.env.example` 機密値検知）追加後の回帰: `./.venv/bin/python ci/policy_check.py` → `[policy_check] OK`
 	- SEC-003共通エラーハンドラ追加後の回帰: `./.venv/bin/python -m pytest tests/test_error_handling.py tests/test_api_auth.py tests/test_api_handlers.py` → 24 passed
 

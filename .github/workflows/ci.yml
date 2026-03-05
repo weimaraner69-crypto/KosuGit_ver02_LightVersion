@@ -25,7 +25,6 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
-
 jobs:
   quality-gate:
     runs-on: ubuntu-latest
@@ -133,6 +132,87 @@ jobs:
       #     else:
       #         print('OTel SDK 未インストール — スキップ')
       #     "
+
+  security-regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: "3.11"
+
+      - uses: astral-sh/setup-uv@eac588ad8def6316056a12d4907a9d4d84ff7a3b # v7.3.0
+        with:
+          enable-cache: true
+
+      - name: Sync dependencies
+        run: uv sync --all-extras --dev
+
+      - name: Security regression tests
+        run: |
+          uv run pytest -q --tb=short \
+            tests/test_security_regression.py \
+            tests/test_csrf.py \
+            tests/test_login_protection.py \
+            tests/test_security_config.py
+
+      - name: Notify security regression failure on PR
+        if: failure() && github.event_name == 'pull_request'
+        continue-on-error: true
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          GITHUB_API_URL: ${{ github.api_url }}
+          GITHUB_SERVER_URL: ${{ github.server_url }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_RUN_ID: ${{ github.run_id }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          from urllib.request import Request, urlopen
+
+          run_url = (
+            f"{os.environ['GITHUB_SERVER_URL']}/"
+            f"{os.environ['GITHUB_REPOSITORY']}/actions/runs/{os.environ['GITHUB_RUN_ID']}"
+          )
+          body = {
+            "body": (
+              "⚠️ SEC-011 security-regression ジョブが失敗しました。\n\n"
+              f"- run: {run_url}\n"
+              "- 対応: 失敗ログを確認し、再実行または修正PRを作成してください。"
+            )
+          }
+          request = Request(
+            (
+              f"{os.environ['GITHUB_API_URL']}/repos/"
+              f"{os.environ['GITHUB_REPOSITORY']}/issues/{os.environ['PR_NUMBER']}/comments"
+            ),
+            data=json.dumps(body).encode("utf-8"),
+            headers={
+              "Accept": "application/vnd.github+json",
+              "Authorization": f"Bearer {os.environ['GITHUB_TOKEN']}",
+              "Content-Type": "application/json",
+            },
+            method="POST",
+          )
+          with urlopen(request, timeout=10):
+            pass
+          PY
+
+      - name: Write security regression failure summary
+        if: failure()
+        run: |
+          {
+            echo "## Security regression failed"
+            echo ""
+            echo "- run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+            echo "- notify: pull_request イベント時はPRへ自動コメントを投稿"
+            echo "- action: 失敗ログを確認し、再実行または修正PRで対応してください。"
+          } >> "$GITHUB_STEP_SUMMARY"
 
   # =====================================================================
   # シークレットスキャン（gitleaks）
