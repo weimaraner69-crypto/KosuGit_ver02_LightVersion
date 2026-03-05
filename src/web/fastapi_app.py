@@ -11,6 +11,8 @@ from shared.audit import SqlAlchemyAuditLogWriter
 from shared.auth import AuthContext
 from shared.csp_report import (
     SqlAlchemyCspReportWriter,
+    create_csp_spike_alert_sender_from_env,
+    dispatch_csp_spike_alert,
     get_csp_report_summary,
     persist_csp_report,
 )
@@ -176,6 +178,15 @@ def _summarize_csp_reports_from_database(
         )
 
 
+def _dispatch_csp_spike_alert_if_needed(summary: dict[str, Any]) -> bool:
+    """環境設定が有効かつ急増検知がある場合のみWebhook通知する。"""
+    sender = create_csp_spike_alert_sender_from_env()
+    if sender is None:
+        return False
+
+    return dispatch_csp_spike_alert(summary=summary, sender=sender)
+
+
 def create_fastapi_app() -> Any:
     """FastAPI アプリを生成する。"""
     if not _is_fastapi_available():
@@ -284,11 +295,26 @@ def create_fastapi_app() -> Any:
                 top_directives=top_directives,
                 spike_threshold=spike_threshold,
             )
+            alert_dispatched = False
+            try:
+                alert_dispatched = _dispatch_csp_spike_alert_if_needed(summary)
+            except Exception as error:
+                log_internal_error(
+                    error,
+                    context={
+                        "component": "csp_report_summary_alert_dispatch",
+                        "alert_configured": "true",
+                    },
+                )
+
             api_response = ApiResponse(
                 status_code=200,
                 body={
                     "ok": True,
-                    "data": summary,
+                    "data": {
+                        **summary,
+                        "alert_dispatched": alert_dispatched,
+                    },
                 },
             )
         except ValueError:

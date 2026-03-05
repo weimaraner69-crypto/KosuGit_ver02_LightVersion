@@ -11,8 +11,11 @@ from sqlalchemy.orm import Session
 
 from shared.audit import InMemoryAuditLogWriter
 from shared.csp_report import (
+    CspSpikeAlertSender,
     SqlAlchemyCspReportWriter,
     build_csp_report_entry,
+    create_csp_spike_alert_sender_from_env,
+    dispatch_csp_spike_alert,
     get_csp_report_summary,
     persist_csp_report,
 )
@@ -280,3 +283,108 @@ def test_get_csp_report_summary_急増directiveを検知できる() -> None:
             "increase": 2.83,
         }
     ]
+
+
+def test_dispatch_csp_spike_alert_急増が無い場合は送信しない() -> None:
+    """急増が無い場合はWebhook送信しない。"""
+    calls: list[dict[str, object]] = []
+
+    sender = CspSpikeAlertSender(
+        endpoint_url="https://hooks.example.com/csp",
+        transport=lambda endpoint_url, headers, body, timeout: calls.append(
+            {
+                "endpoint_url": endpoint_url,
+                "headers": headers,
+                "body": body,
+                "timeout": timeout,
+            }
+        ),
+    )
+
+    dispatched = dispatch_csp_spike_alert(
+        summary={
+            "range_days": 7,
+            "total_reports": 12,
+            "spike_threshold": 3,
+            "spike_directives": [],
+        },
+        sender=sender,
+    )
+
+    assert dispatched is False
+    assert calls == []
+
+
+def test_dispatch_csp_spike_alert_急増がある場合は送信する() -> None:
+    """急増がある場合はWebhookへ送信する。"""
+    calls: list[dict[str, object]] = []
+
+    sender = CspSpikeAlertSender(
+        endpoint_url="https://hooks.example.com/csp",
+        bearer_token="secret-token",
+        timeout_seconds=4.5,
+        transport=lambda endpoint_url, headers, body, timeout: calls.append(
+            {
+                "endpoint_url": endpoint_url,
+                "headers": headers,
+                "body": body,
+                "timeout": timeout,
+            }
+        ),
+    )
+
+    dispatched = dispatch_csp_spike_alert(
+        summary={
+            "range_days": 7,
+            "total_reports": 20,
+            "spike_threshold": 2,
+            "spike_directives": [
+                {
+                    "directive": "script-src-elem",
+                    "recent_count": 5,
+                    "baseline_daily_avg": 0.5,
+                    "increase": 4.5,
+                }
+            ],
+        },
+        sender=sender,
+    )
+
+    assert dispatched is True
+    assert len(calls) == 1
+    call = calls[0]
+    assert call["endpoint_url"] == "https://hooks.example.com/csp"
+    assert call["timeout"] == 4.5
+    headers = call["headers"]
+    assert isinstance(headers, dict)
+    assert headers["Content-Type"] == "application/json"
+    assert headers["Authorization"] == "Bearer secret-token"
+
+    body = call["body"]
+    assert isinstance(body, bytes)
+    payload = json.loads(body.decode("utf-8"))
+    assert payload["event"] == "csp_spike_detected"
+    assert payload["spike_threshold"] == 2
+    assert payload["spike_directives"][0]["directive"] == "script-src-elem"
+
+
+def test_create_csp_spike_alert_sender_from_env_設定が無い場合はNone() -> None:
+    """Webhook URL未設定時は送信設定を生成しない。"""
+    sender = create_csp_spike_alert_sender_from_env(environ_get=lambda _: None)
+    assert sender is None
+
+
+def test_create_csp_spike_alert_sender_from_env_設定値から生成できる() -> None:
+    """環境変数設定からWebhook送信設定を生成できる。"""
+    env = {
+        "CSP_SPIKE_ALERT_WEBHOOK_URL": " https://hooks.example.com/csp ",
+        "CSP_SPIKE_ALERT_TIMEOUT_SECONDS": "5.5",
+        "CSP_SPIKE_ALERT_BEARER_TOKEN": " secret-token ",
+    }
+
+    sender = create_csp_spike_alert_sender_from_env(environ_get=env.get)
+
+    assert sender is not None
+    assert sender.endpoint_url == "https://hooks.example.com/csp"
+    assert sender.timeout_seconds == 5.5
+    assert sender.bearer_token == "secret-token"

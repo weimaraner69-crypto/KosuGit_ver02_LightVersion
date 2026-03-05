@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import json
+
 import pytest
 
 from shared.auth import GENERIC_AUTH_ERROR_MESSAGE
+from shared.csp_report import CspSpikeAlertSender
 from shared.csrf import CSRF_COOKIE_NAME, CSRF_HEADER_NAME
 from web.fastapi_app import _is_fastapi_available, create_fastapi_app
 
@@ -206,6 +209,63 @@ def test_create_fastapi_app_cspレポート集計を取得できる() -> None:
     spike_names = [item["directive"] for item in data["spike_directives"]]
     assert "script-src-elem" in spike_names
     assert "img-src" in spike_names
+    assert isinstance(data["alert_dispatched"], bool)
+
+
+def test_create_fastapi_app_cspレポート集計_急増時に通知送信される(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Webhook設定がある場合、急増検知で通知送信される。"""
+    if not _is_fastapi_available():
+        pytest.skip("fastapi 未導入のためスキップ")
+
+    from fastapi.testclient import TestClient  # type: ignore[import-not-found]
+
+    sent_payloads: list[dict[str, object]] = []
+
+    sender = CspSpikeAlertSender(
+        endpoint_url="https://hooks.example.com/csp",
+        transport=lambda _endpoint_url, _headers, body, _timeout: sent_payloads.append(
+            json.loads(body.decode("utf-8"))
+        ),
+    )
+
+    monkeypatch.setattr("web.fastapi_app.create_csp_spike_alert_sender_from_env", lambda: sender)
+
+    app = create_fastapi_app()
+    client = TestClient(app)
+
+    client.post(
+        "/csp-report",
+        json={
+            "csp-report": {
+                "document-uri": "https://example.com/spike-1",
+                "violated-directive": "script-src-elem",
+                "effective-directive": "script-src",
+                "status-code": 200,
+            }
+        },
+    )
+    client.post(
+        "/csp-report",
+        json={
+            "csp-report": {
+                "document-uri": "https://example.com/spike-2",
+                "violated-directive": "script-src-elem",
+                "effective-directive": "script-src",
+                "status-code": 200,
+            }
+        },
+    )
+
+    response = client.get("/csp-report/summary?days=30&top=5&spike_threshold=1")
+
+    assert response.status_code == 200
+    assert response.json()["ok"] is True
+    data = response.json()["data"]
+    assert data["alert_dispatched"] is True
+    assert len(sent_payloads) == 1
+    assert sent_payloads[0]["event"] == "csp_spike_detected"
 
 
 def test_create_fastapi_app_cspレポート集計_不正クエリは400() -> None:

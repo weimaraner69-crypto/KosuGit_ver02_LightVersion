@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import json
+import os
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from typing import TYPE_CHECKING, Any, Protocol
+from urllib.request import Request, urlopen
 
 from sqlalchemy import func
 from sqlalchemy.orm import Session  # noqa: TC002
@@ -14,7 +16,7 @@ from shared.audit import AuditLogWriter, write_audit_log
 from shared.tables import CspReportTable
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping
+    from collections.abc import Callable, Mapping
 
 
 @dataclass(frozen=True)
@@ -45,6 +47,137 @@ class CspReportWriter(Protocol):
 
     def write(self, entry: CspReportEntry) -> int:
         """CSPレポートを保存し、採番IDを返す。"""
+
+
+def _parse_positive_float(value: str | None, *, default: float, setting_name: str) -> float:
+    """環境変数から正の実数を読み取る。"""
+    if value is None:
+        return default
+
+    normalized = value.strip()
+    if not normalized:
+        return default
+
+    try:
+        parsed = float(normalized)
+    except ValueError as error:
+        raise ValueError(f"{setting_name} は実数で指定してください") from error
+
+    if parsed <= 0:
+        raise ValueError(f"{setting_name} は正の値である必要があります")
+    return parsed
+
+
+def _default_alert_transport(
+    endpoint_url: str,
+    headers: Mapping[str, str],
+    body: bytes,
+    timeout_seconds: float,
+) -> None:
+    """Webhook へHTTP POSTで通知する。"""
+    request = Request(
+        endpoint_url,
+        data=body,
+        headers=dict(headers),
+        method="POST",
+    )
+    with urlopen(request, timeout=timeout_seconds):
+        return
+
+
+@dataclass
+class CspSpikeAlertSender:
+    """CSP急増検知通知をWebhookへ送信する実装。"""
+
+    endpoint_url: str
+    timeout_seconds: float = 3.0
+    bearer_token: str | None = None
+    extra_headers: Mapping[str, str] = field(default_factory=dict)
+    transport: Callable[[str, Mapping[str, str], bytes, float], None] | None = None
+
+    def __post_init__(self) -> None:
+        """不変条件の検証。"""
+        if not self.endpoint_url:
+            raise ValueError("endpoint_url は必須です")
+        if not (
+            self.endpoint_url.startswith("https://") or self.endpoint_url.startswith("http://")
+        ):
+            raise ValueError("endpoint_url は http:// または https:// で始まる必要があります")
+        if self.timeout_seconds <= 0:
+            raise ValueError("timeout_seconds は正の値である必要があります")
+
+    def send(self, payload: Mapping[str, Any]) -> None:
+        """Webhookへ通知を送信する。"""
+        headers = {
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+            **dict(self.extra_headers),
+        }
+        if self.bearer_token:
+            headers["Authorization"] = f"Bearer {self.bearer_token}"
+
+        body = json.dumps(
+            dict(payload),
+            ensure_ascii=False,
+            sort_keys=True,
+        ).encode("utf-8")
+
+        transport = self.transport or _default_alert_transport
+        transport(self.endpoint_url, headers, body, self.timeout_seconds)
+
+
+def build_csp_spike_alert_payload(summary: Mapping[str, Any]) -> dict[str, Any]:
+    """CSP急増検知結果をWebhook通知用ペイロードへ変換する。"""
+    return {
+        "event": "csp_spike_detected",
+        "range_days": summary.get("range_days"),
+        "total_reports": summary.get("total_reports"),
+        "spike_threshold": summary.get("spike_threshold"),
+        "spike_directives": summary.get("spike_directives", []),
+    }
+
+
+def dispatch_csp_spike_alert(
+    *,
+    summary: Mapping[str, Any],
+    sender: CspSpikeAlertSender,
+) -> bool:
+    """急増directiveが存在する場合のみ通知する。"""
+    spikes = summary.get("spike_directives")
+    if not isinstance(spikes, list) or len(spikes) == 0:
+        return False
+
+    sender.send(build_csp_spike_alert_payload(summary))
+    return True
+
+
+def create_csp_spike_alert_sender_from_env(
+    *,
+    environ_get: Callable[[str], str | None] | None = None,
+) -> CspSpikeAlertSender | None:
+    """環境変数からWebhook通知送信設定を構築する。"""
+    get_value = environ_get or os.getenv
+
+    endpoint_url = (get_value("CSP_SPIKE_ALERT_WEBHOOK_URL") or "").strip()
+    if not endpoint_url:
+        return None
+
+    timeout_seconds = _parse_positive_float(
+        get_value("CSP_SPIKE_ALERT_TIMEOUT_SECONDS"),
+        default=3.0,
+        setting_name="CSP_SPIKE_ALERT_TIMEOUT_SECONDS",
+    )
+
+    bearer_token_raw = get_value("CSP_SPIKE_ALERT_BEARER_TOKEN")
+    bearer_token = bearer_token_raw.strip() if isinstance(bearer_token_raw, str) else None
+    if bearer_token == "":
+        bearer_token = None
+
+    return CspSpikeAlertSender(
+        endpoint_url=endpoint_url,
+        timeout_seconds=timeout_seconds,
+        bearer_token=bearer_token,
+    )
 
 
 @dataclass
