@@ -533,6 +533,7 @@
 	- 反映: SEC系Issueトリアージ結果の週次集計（件数サマリー + Artifact保存）を `.github/workflows/security-issue-triage-report.yml` に追加
 	- 反映: 週次集計レポートのStep Summaryに、未アサインopen Issueの警告セクション（max 10）を追加
 	- 反映: 未アサインopen件数が `unassigned_alert_threshold`（既定3）以上のときのみ警告見出しを強調表示
+	- 反映: しきい値超過時は未アサインopen Issue（max 10）へ自動通知コメントを投稿し、同一週の重複投稿を抑止
 
 - SEC-003 共通エラーハンドラ実装: 完了（現行構成）
 	- 状態: 利用者向け一般化メッセージと内部ログ向け詳細分離、機微情報マスキングを共通化

@@ -15,7 +15,7 @@ on:
                 default: "3"
 
 permissions:
-    issues: read
+    issues: write
     contents: read
 
 concurrency:
@@ -53,7 +53,9 @@ jobs:
                   unassigned_alert_threshold = int(os.environ["UNASSIGNED_ALERT_THRESHOLD"])
                   result_path = Path(os.environ["RESULT_PATH"])
 
-                  since_date = (dt.datetime.now(dt.timezone.utc) - dt.timedelta(days=report_days)).strftime("%Y-%m-%d")
+                  generated_at = dt.datetime.now(dt.timezone.utc)
+                  report_marker = generated_at.strftime("%G-W%V")
+                  since_date = (generated_at - dt.timedelta(days=report_days)).strftime("%Y-%m-%d")
                   base_query = f"repo:{repository} is:issue label:security created:>={since_date} SEC- in:title"
 
                   def search_issues(query: str, per_page: int = 1) -> dict:
@@ -77,6 +79,8 @@ jobs:
                   report = {
                       "repository": repository,
                       "report_days": report_days,
+                      "generated_at": generated_at.isoformat(),
+                      "report_marker": report_marker,
                       "since_date": since_date,
                       "total_count": total,
                       "open_count": open_count,
@@ -188,6 +192,87 @@ jobs:
                           )
 
                   summary_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+                  PY
+
+            - name: Notify unassigned issues
+              if: always()
+              env:
+                  GH_TOKEN: ${{ github.token }}
+                  REPOSITORY: ${{ github.repository }}
+                  RESULT_PATH: ${{ env.RESULT_PATH }}
+                  REPORT_DAYS: ${{ env.REPORT_DAYS }}
+              run: |
+                  python - <<'PY'
+                  import json
+                  import os
+                  import subprocess
+                  from pathlib import Path
+
+                  result_path = Path(os.environ["RESULT_PATH"])
+                  summary_path = Path(os.environ["GITHUB_STEP_SUMMARY"])
+
+                  if not result_path.exists():
+                      raise SystemExit(0)
+
+                  data = json.loads(result_path.read_text(encoding="utf-8"))
+                  if not data.get("unassigned_alert_exceeded"):
+                      raise SystemExit(0)
+
+                  repository = os.environ["REPOSITORY"]
+                  report_days = os.environ["REPORT_DAYS"]
+                  threshold = data["unassigned_alert_threshold"]
+                  count = data["unassigned_open_count"]
+                  marker = data.get("report_marker", "weekly")
+                  signature = f"<!-- security-issue-triage-report:{marker} -->"
+
+                  commented = 0
+                  skipped = 0
+
+                  for issue in data.get("unassigned_sample_issues", []):
+                      issue_number = issue["number"]
+
+                      comments_response = subprocess.run(
+                          [
+                              "gh",
+                              "api",
+                              f"/repos/{repository}/issues/{issue_number}/comments",
+                              "-f",
+                              "per_page=30",
+                          ],
+                          capture_output=True,
+                          text=True,
+                          check=True,
+                      )
+                      comments = json.loads(comments_response.stdout)
+
+                      if any(signature in (comment.get("body") or "") for comment in comments):
+                          skipped += 1
+                          continue
+
+                      body = "\n".join(
+                          [
+                              "⚠️ セキュリティIssueトリアージ週次レポートで未アサインを検知しました。",
+                              "",
+                              f"- report_days: {report_days}",
+                              f"- unassigned_open_count: {count}",
+                              f"- threshold: {threshold}",
+                              "- action: assignee を設定し、対応方針をIssueへ追記してください。",
+                              "",
+                              signature,
+                          ]
+                      )
+
+                      subprocess.run(
+                          ["gh", "issue", "comment", str(issue_number), "--body", body],
+                          check=True,
+                      )
+                      commented += 1
+
+                  with summary_path.open("a", encoding="utf-8") as summary:
+                      summary.write("\n")
+                      summary.write("### Unassigned Notification Result\n")
+                      summary.write(f"- commented_count: {commented}\n")
+                      summary.write(f"- skipped_count: {skipped}\n")
                   PY
 
             - name: Upload triage report artifact

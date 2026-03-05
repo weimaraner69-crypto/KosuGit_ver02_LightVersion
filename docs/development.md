@@ -178,6 +178,8 @@ SEC-011 security-regression 失敗対応
 - Step Summary へ件数（total/open/closed/assigned/unassigned）を出力し、同内容をArtifactとして保存する。
 - 未アサインの open Issue は `unassigned_alert_threshold`（既定3）以上のときのみ警告見出しで強調表示する。
 - 未アサインの open Issue 一覧（max 10）はStep Summary先頭に出力する。
+- しきい値超過時は未アサイン open Issue（max 10）へ自動通知コメントを投稿する。
+- 自動通知コメントは週次マーカー（`security-issue-triage-report:<ISO週>`）で同一週の重複投稿を抑止する。
 - 手動実行時は `report_days` 入力で集計期間を指定できる。
 - 手動実行時は `unassigned_alert_threshold` 入力で警告しきい値を指定できる。
 - 定期実行の既定期間は7日（`workflow_dispatch` 未指定時も同値）とする。
