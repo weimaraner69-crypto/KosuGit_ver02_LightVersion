@@ -9,7 +9,11 @@ from business.api import export_sales_data
 from shared.api_handlers import ApiResponse
 from shared.audit import SqlAlchemyAuditLogWriter
 from shared.auth import AuthContext
-from shared.csp_report import SqlAlchemyCspReportWriter, persist_csp_report
+from shared.csp_report import (
+    SqlAlchemyCspReportWriter,
+    get_csp_report_summary,
+    persist_csp_report,
+)
 from shared.csrf import CSRF_COOKIE_NAME, CSRF_HEADER_NAME
 from shared.database import init_db
 from shared.database.connection import get_session_factory
@@ -105,6 +109,30 @@ def _sanitize_csp_report_payload(payload: Any) -> dict[str, Any]:
     return sanitized_report
 
 
+def _parse_positive_query_parameter(
+    value: str | None,
+    *,
+    parameter_name: str,
+    default: int,
+    max_value: int,
+) -> int:
+    """クエリパラメータを正の整数へ変換する。"""
+    if value is None:
+        return default
+
+    normalized = sanitize_input(value, max_length=16)
+    try:
+        parsed = int(normalized)
+    except ValueError as error:
+        raise ValueError(f"{parameter_name} は整数で指定してください") from error
+
+    if parsed <= 0:
+        raise ValueError(f"{parameter_name} は正の値で指定してください")
+    if parsed > max_value:
+        raise ValueError(f"{parameter_name} は {max_value} 以下で指定してください")
+    return parsed
+
+
 def _persist_csp_report_to_database(sanitized_report: dict[str, Any]) -> int:
     """CSPレポートをDBへ永続化し、監査ログへ記録する。"""
     try:
@@ -124,6 +152,22 @@ def _persist_csp_report_to_database(sanitized_report: dict[str, Any]) -> int:
         session.commit()
 
     return row_id
+
+
+def _summarize_csp_reports_from_database(*, days: int, top_directives: int) -> dict[str, Any]:
+    """CSPレポート集計をデータベースから取得する。"""
+    try:
+        session_factory = get_session_factory()
+    except RuntimeError:
+        init_db()
+        session_factory = get_session_factory()
+
+    with session_factory() as session:
+        return get_csp_report_summary(
+            session=session,
+            days=days,
+            top_directives=top_directives,
+        )
 
 
 def create_fastapi_app() -> Any:
@@ -207,10 +251,63 @@ def create_fastapi_app() -> Any:
 
         return adapt_api_response_to_fastapi(api_response)
 
+    def csp_report_summary_handler(request: Any) -> Any:
+        """CSP違反レポートの集計ビュー。"""
+        try:
+            days = _parse_positive_query_parameter(
+                request.query_params.get("days"),
+                parameter_name="days",
+                default=7,
+                max_value=365,
+            )
+            top_directives = _parse_positive_query_parameter(
+                request.query_params.get("top"),
+                parameter_name="top",
+                default=10,
+                max_value=100,
+            )
+
+            summary = _summarize_csp_reports_from_database(
+                days=days,
+                top_directives=top_directives,
+            )
+            api_response = ApiResponse(
+                status_code=200,
+                body={
+                    "ok": True,
+                    "data": summary,
+                },
+            )
+        except ValueError:
+            api_response = ApiResponse(
+                status_code=400,
+                body={
+                    "ok": False,
+                    "error": "不正なリクエストです",
+                },
+            )
+        except Exception as error:
+            log_internal_error(
+                error,
+                context={
+                    "component": "csp_report_summary_handler",
+                },
+            )
+            api_response = ApiResponse(
+                status_code=500,
+                body={
+                    "ok": False,
+                    "error": PUBLIC_INTERNAL_ERROR_MESSAGE,
+                },
+            )
+
+        return adapt_api_response_to_fastapi(api_response)
+
     app = FastAPI(title="business-management-system", version="0.1.0")
 
     app.get("/health")(health_check_handler)
     app.post("/business/sales/export")(export_sales_handler)
     app.post("/csp-report")(csp_report_handler)
+    app.get("/csp-report/summary")(csp_report_summary_handler)
 
     return app

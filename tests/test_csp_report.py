@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime, timedelta, timezone
 
 import pytest
 from sqlalchemy import create_engine
@@ -12,6 +13,7 @@ from shared.audit import InMemoryAuditLogWriter
 from shared.csp_report import (
     SqlAlchemyCspReportWriter,
     build_csp_report_entry,
+    get_csp_report_summary,
     persist_csp_report,
 )
 from shared.database import Base
@@ -131,3 +133,69 @@ def test_persist_csp_report_永続化失敗時は監査ログ失敗を記録() -
     assert entry.action == "csp_report_ingest"
     assert entry.result == "failure"
     assert entry.error_type == "RuntimeError"
+
+
+def test_get_csp_report_summary_期間別とdirective別を集計できる() -> None:
+    """指定期間の件数とdirective別件数を集計できる。"""
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(bind=engine)
+    now = datetime(2026, 3, 5, 12, 0, tzinfo=timezone.utc)
+
+    with Session(engine) as session:
+        writer = SqlAlchemyCspReportWriter(session=session, auto_commit=False)
+        writer.write(
+            build_csp_report_entry(
+                {
+                    "document-uri": "https://example.com/report-1",
+                    "violated-directive": "script-src-elem",
+                    "effective-directive": "script-src",
+                    "status-code": 200,
+                }
+            )
+        )
+        writer.write(
+            build_csp_report_entry(
+                {
+                    "document-uri": "https://example.com/report-2",
+                    "violated-directive": "img-src",
+                    "effective-directive": "img-src",
+                    "status-code": 200,
+                }
+            )
+        )
+        writer.write(
+            build_csp_report_entry(
+                {
+                    "document-uri": "https://example.com/report-old",
+                    "violated-directive": "style-src",
+                    "effective-directive": "style-src",
+                    "status-code": 200,
+                }
+            )
+        )
+
+        latest_row = session.query(CspReportTable).filter(CspReportTable.id == 1).one()
+        latest_row.occurred_at = now - timedelta(days=1)
+        second_row = session.query(CspReportTable).filter(CspReportTable.id == 2).one()
+        second_row.occurred_at = now - timedelta(days=2)
+        old_row = session.query(CspReportTable).filter(CspReportTable.id == 3).one()
+        old_row.occurred_at = now - timedelta(days=40)
+        session.flush()
+
+        summary = get_csp_report_summary(
+            session=session,
+            days=7,
+            top_directives=10,
+            now=now,
+        )
+
+    assert summary["range_days"] == 7
+    assert summary["total_reports"] == 2
+    assert summary["period_counts"] == [
+        {"date": "2026-03-03", "count": 1},
+        {"date": "2026-03-04", "count": 1},
+    ]
+    assert summary["directive_counts"] == [
+        {"directive": "img-src", "count": 1},
+        {"directive": "script-src-elem", "count": 1},
+    ]

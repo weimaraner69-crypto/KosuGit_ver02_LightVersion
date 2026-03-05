@@ -501,10 +501,11 @@
 	- 反映: `create_fastapi_app`（`src/web/fastapi_app.py`）へ業務ルーター（`POST /business/sales/export`）を追加し、`export_sales_data`（`src/business/api.py`）へ接続
 	- 反映: `create_fastapi_app`（`src/web/fastapi_app.py`）へ `POST /csp-report` を追加し、CSP違反レポート受信を接続
 	- 反映: `persist_csp_report`（`src/shared/csp_report.py`）を追加し、`/csp-report` 受信時のDB永続化（`csp_reports`）と監査ログ連携（`csp_report_ingest`）を実装
+	- 反映: `get_csp_report_summary`（`src/shared/csp_report.py`）を追加し、`GET /csp-report/summary`（`src/web/fastapi_app.py`）で期間別件数・directive別件数を参照可能化
 	- 反映: `SecurityRuntimeConfig` に `security_headers` を追加し、環境変数でヘッダー/CSPポリシーを制御可能化
 	- 追加: SEC-010設定・接続テスト（`tests/test_security_config.py`, `tests/test_api_handlers.py`, `tests/test_auth_endpoints.py`, `tests/test_http_response_adapter.py`, `tests/test_fastapi_response_adapter.py`, `tests/test_fastapi_app.py`, `tests/test_csp_report.py`）
 	- 次アクション:
-		- `/business/sales/export` 以外の業務APIへ段階的にルーターを拡張し、CSPレポートの分析ダッシュボード連携を追加する
+		- `/business/sales/export` 以外の業務APIへ段階的にルーターを拡張し、CSPレポート集計の可視化UI連携を追加する
 
 - SEC-011 セキュリティテスト整備: 完了（現行構成）
 	- 状態: 主要防御機能（401/403/CSRF/Cookie属性/ログインロック/監査マスキング）の回帰テストを追加
@@ -550,6 +551,7 @@
 	- SEC-010FastAPI最小ルーター追加後の回帰: `./.venv/bin/python -m pytest tests/test_fastapi_app.py` → 1 passed / 0-1 skipped
 	- SEC-010CSPレポート受信追加後の回帰: `./.venv/bin/python -m pytest tests/test_fastapi_app.py` → 1 passed / 0-5 skipped
 	- SEC-010CSP永続化/監査連携追加後の回帰: `./.venv/bin/python -m pytest tests/test_csp_report.py tests/test_fastapi_app.py` → 5-7 passed / 0-5 skipped
+	- SEC-010CSP集計ビュー追加後の回帰: `./.venv/bin/python -m pytest tests/test_csp_report.py tests/test_fastapi_app.py` → 6 passed / 0-7 skipped
 	- SEC-011セキュリティ回帰テスト追加後の回帰: `./.venv/bin/python -m pytest tests/test_security_regression.py` → 6 passed
 	- SEC-003共通エラーハンドラ追加後の回帰: `./.venv/bin/python -m pytest tests/test_error_handling.py tests/test_api_auth.py tests/test_api_handlers.py` → 24 passed
 

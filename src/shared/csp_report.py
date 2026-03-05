@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import TYPE_CHECKING, Any, Protocol
 
+from sqlalchemy import func
 from sqlalchemy.orm import Session  # noqa: TC002
 
 from shared.audit import AuditLogWriter, write_audit_log
@@ -150,3 +151,72 @@ def persist_csp_report(
             error_type=type(error).__name__,
         )
         raise
+
+
+def get_csp_report_summary(
+    *,
+    session: Session,
+    days: int,
+    top_directives: int,
+    now: datetime | None = None,
+) -> dict[str, Any]:
+    """CSPレポートの期間別件数・directive別件数を集計する。"""
+    if days <= 0:
+        raise ValueError("days は正の値である必要があります")
+    if top_directives <= 0:
+        raise ValueError("top_directives は正の値である必要があります")
+
+    current = now or datetime.now(timezone.utc)  # noqa: UP017
+    since = current - timedelta(days=days)
+
+    total_reports = (
+        session.query(func.count(CspReportTable.id))
+        .filter(CspReportTable.occurred_at >= since)
+        .scalar()
+    )
+
+    period_rows = (
+        session.query(
+            func.date(CspReportTable.occurred_at),
+            func.count(CspReportTable.id),
+        )
+        .filter(CspReportTable.occurred_at >= since)
+        .group_by(func.date(CspReportTable.occurred_at))
+        .order_by(func.date(CspReportTable.occurred_at).asc())
+        .all()
+    )
+
+    directive_rows = (
+        session.query(
+            CspReportTable.violated_directive,
+            func.count(CspReportTable.id),
+        )
+        .filter(
+            CspReportTable.occurred_at >= since,
+            CspReportTable.violated_directive.isnot(None),
+            CspReportTable.violated_directive != "",
+        )
+        .group_by(CspReportTable.violated_directive)
+        .order_by(func.count(CspReportTable.id).desc(), CspReportTable.violated_directive.asc())
+        .limit(top_directives)
+        .all()
+    )
+
+    return {
+        "range_days": days,
+        "total_reports": int(total_reports or 0),
+        "period_counts": [
+            {
+                "date": str(bucket),
+                "count": int(report_count),
+            }
+            for bucket, report_count in period_rows
+        ],
+        "directive_counts": [
+            {
+                "directive": str(directive),
+                "count": int(report_count),
+            }
+            for directive, report_count in directive_rows
+        ],
+    }
