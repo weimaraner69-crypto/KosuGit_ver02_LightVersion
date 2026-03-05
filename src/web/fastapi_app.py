@@ -15,6 +15,7 @@ from shared.csp_report import (
     dispatch_csp_spike_alert,
     get_csp_report_summary,
     get_csp_spike_alert_cooldown_minutes_from_env,
+    get_csp_spike_alert_priority_increase_ratio_threshold_from_env,
     persist_csp_report,
 )
 from shared.csrf import CSRF_COOKIE_NAME, CSRF_HEADER_NAME
@@ -185,6 +186,9 @@ def _dispatch_csp_spike_alert_if_needed(summary: dict[str, Any]) -> bool:
     if sender is None:
         return False
     cooldown_minutes = get_csp_spike_alert_cooldown_minutes_from_env()
+    priority_increase_ratio_threshold = (
+        get_csp_spike_alert_priority_increase_ratio_threshold_from_env()
+    )
 
     try:
         session_factory = get_session_factory()
@@ -200,6 +204,7 @@ def _dispatch_csp_spike_alert_if_needed(summary: dict[str, Any]) -> bool:
             audit_log_writer=audit_log_writer,
             session=session,
             cooldown_minutes=cooldown_minutes,
+            priority_increase_ratio_threshold=priority_increase_ratio_threshold,
         )
         session.commit()
 

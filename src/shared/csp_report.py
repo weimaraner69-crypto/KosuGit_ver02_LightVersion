@@ -88,6 +88,25 @@ def _parse_positive_float(value: str | None, *, default: float, setting_name: st
     return parsed
 
 
+def _parse_non_negative_float(value: str | None, *, default: float, setting_name: str) -> float:
+    """環境変数から0以上の実数を読み取る。"""
+    if value is None:
+        return default
+
+    normalized = value.strip()
+    if not normalized:
+        return default
+
+    try:
+        parsed = float(normalized)
+    except ValueError as error:
+        raise ValueError(f"{setting_name} は実数で指定してください") from error
+
+    if parsed < 0:
+        raise ValueError(f"{setting_name} は0以上である必要があります")
+    return parsed
+
+
 def _default_alert_transport(
     endpoint_url: str,
     headers: Mapping[str, str],
@@ -269,6 +288,59 @@ def get_csp_spike_alert_cooldown_minutes_from_env(
     )
 
 
+def _to_float(value: Any) -> float | None:
+    """数値候補をfloatへ変換する。"""
+    if isinstance(value, (int, float)):
+        return float(value)
+    return None
+
+
+def should_bypass_csp_spike_alert_cooldown(
+    *,
+    summary: Mapping[str, Any],
+    priority_increase_ratio_threshold: float,
+) -> bool:
+    """増加率が閾値以上ならクールダウン抑制を解除する。"""
+    if priority_increase_ratio_threshold <= 0:
+        return False
+
+    spikes = summary.get("spike_directives")
+    if not isinstance(spikes, list):
+        return False
+
+    for item in spikes:
+        if not isinstance(item, dict):
+            continue
+
+        recent_count = _to_float(item.get("recent_count"))
+        baseline_daily_avg = _to_float(item.get("baseline_daily_avg"))
+        if recent_count is None or recent_count <= 0:
+            continue
+
+        if baseline_daily_avg is None or baseline_daily_avg <= 0:
+            increase_ratio = recent_count
+        else:
+            increase_ratio = recent_count / baseline_daily_avg
+
+        if increase_ratio >= priority_increase_ratio_threshold:
+            return True
+
+    return False
+
+
+def get_csp_spike_alert_priority_increase_ratio_threshold_from_env(
+    *,
+    environ_get: Callable[[str], str | None] | None = None,
+) -> float:
+    """環境変数から優先通知の増加率閾値を取得する。"""
+    get_value = environ_get or os.getenv
+    return _parse_non_negative_float(
+        get_value("CSP_SPIKE_ALERT_PRIORITY_INCREASE_RATIO_THRESHOLD"),
+        default=5.0,
+        setting_name="CSP_SPIKE_ALERT_PRIORITY_INCREASE_RATIO_THRESHOLD",
+    )
+
+
 def dispatch_csp_spike_alert(
     *,
     summary: Mapping[str, Any],
@@ -276,6 +348,7 @@ def dispatch_csp_spike_alert(
     audit_log_writer: AuditLogWriter | None = None,
     session: Session | None = None,
     cooldown_minutes: int = 0,
+    priority_increase_ratio_threshold: float = 0,
     now: datetime | None = None,
 ) -> bool:
     """急増directiveが存在する場合のみ通知する。"""
@@ -285,7 +358,7 @@ def dispatch_csp_spike_alert(
 
     spike_directive_names = _extract_spike_directive_names(summary)
 
-    if (
+    suppress_by_cooldown = (
         session is not None
         and cooldown_minutes > 0
         and should_suppress_csp_spike_alert(
@@ -294,7 +367,13 @@ def dispatch_csp_spike_alert(
             cooldown_minutes=cooldown_minutes,
             now=now,
         )
-    ):
+    )
+    bypass_cooldown = should_bypass_csp_spike_alert_cooldown(
+        summary=summary,
+        priority_increase_ratio_threshold=priority_increase_ratio_threshold,
+    )
+
+    if suppress_by_cooldown and not bypass_cooldown:
         write_audit_log(
             writer=audit_log_writer,
             actor_user_id="system",
@@ -309,6 +388,22 @@ def dispatch_csp_spike_alert(
             },
         )
         return False
+
+    if suppress_by_cooldown and bypass_cooldown:
+        write_audit_log(
+            writer=audit_log_writer,
+            actor_user_id="system",
+            actor_role="system",
+            resource="security",
+            action="csp_spike_alert_cooldown_bypassed",
+            result="success",
+            metadata={
+                "spike_directive_count": str(len(spike_directive_names)),
+                "spike_directives": ",".join(spike_directive_names),
+                "cooldown_minutes": str(cooldown_minutes),
+                "priority_increase_ratio_threshold": str(priority_increase_ratio_threshold),
+            },
+        )
 
     payload = build_csp_spike_alert_payload(summary)
 
@@ -326,6 +421,7 @@ def dispatch_csp_spike_alert(
                 "spike_directives": ",".join(spike_directive_names),
                 "attempt_count": str(attempt_count),
                 "max_retries": str(sender.max_retries),
+                "cooldown_bypassed": "true" if bypass_cooldown else "false",
             },
         )
         return True

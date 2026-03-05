@@ -18,7 +18,9 @@ from shared.csp_report import (
     dispatch_csp_spike_alert,
     get_csp_report_summary,
     get_csp_spike_alert_cooldown_minutes_from_env,
+    get_csp_spike_alert_priority_increase_ratio_threshold_from_env,
     persist_csp_report,
+    should_bypass_csp_spike_alert_cooldown,
     should_suppress_csp_spike_alert,
 )
 from shared.database import Base
@@ -533,6 +535,42 @@ def test_should_suppress_csp_spike_alert_同一directiveは抑制する() -> Non
     assert suppressed is True
 
 
+def test_should_bypass_csp_spike_alert_cooldown_高増加率で解除する() -> None:
+    """増加率が閾値以上ならクールダウンを解除する。"""
+    bypass = should_bypass_csp_spike_alert_cooldown(
+        summary={
+            "spike_directives": [
+                {
+                    "directive": "script-src-elem",
+                    "recent_count": 12,
+                    "baseline_daily_avg": 2.0,
+                }
+            ]
+        },
+        priority_increase_ratio_threshold=5.0,
+    )
+
+    assert bypass is True
+
+
+def test_should_bypass_csp_spike_alert_cooldown_閾値未満は解除しない() -> None:
+    """増加率が閾値未満ならクールダウン解除しない。"""
+    bypass = should_bypass_csp_spike_alert_cooldown(
+        summary={
+            "spike_directives": [
+                {
+                    "directive": "script-src-elem",
+                    "recent_count": 6,
+                    "baseline_daily_avg": 2.0,
+                }
+            ]
+        },
+        priority_increase_ratio_threshold=5.0,
+    )
+
+    assert bypass is False
+
+
 def test_dispatch_csp_spike_alert_クールダウン中は送信抑制される() -> None:
     """クールダウン中は送信せず抑制監査ログを残す。"""
     engine = create_engine("sqlite:///:memory:")
@@ -597,6 +635,72 @@ def test_dispatch_csp_spike_alert_クールダウン中は送信抑制される(
     assert entry.metadata["cooldown_minutes"] == "30"
 
 
+def test_dispatch_csp_spike_alert_高増加率ならクールダウン解除で送信する() -> None:
+    """同一directiveでも高増加率なら抑制を解除して通知する。"""
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(bind=engine)
+    now = datetime(2026, 3, 5, 12, 0, tzinfo=timezone.utc)
+
+    with Session(engine) as session:
+        session.add(
+            AuditLogTable(
+                actor_user_id="system",
+                actor_role="system",
+                resource="security",
+                action="csp_spike_alert_dispatch",
+                result="success",
+                occurred_at=now - timedelta(minutes=3),
+                metadata_json=json.dumps({"spike_directives": "script-src-elem"}),
+            )
+        )
+        session.flush()
+
+        calls: list[dict[str, object]] = []
+        sender = CspSpikeAlertSender(
+            endpoint_url="https://hooks.example.com/csp",
+            transport=lambda endpoint_url, headers, body, timeout: calls.append(
+                {
+                    "endpoint_url": endpoint_url,
+                    "headers": headers,
+                    "body": body,
+                    "timeout": timeout,
+                }
+            ),
+        )
+        audit_writer = InMemoryAuditLogWriter()
+
+        dispatched = dispatch_csp_spike_alert(
+            summary={
+                "range_days": 7,
+                "total_reports": 20,
+                "spike_threshold": 2,
+                "spike_directives": [
+                    {
+                        "directive": "script-src-elem",
+                        "recent_count": 12,
+                        "baseline_daily_avg": 2.0,
+                        "increase": 10.0,
+                    }
+                ],
+            },
+            sender=sender,
+            audit_log_writer=audit_writer,
+            session=session,
+            cooldown_minutes=30,
+            priority_increase_ratio_threshold=5.0,
+            now=now,
+        )
+
+    assert dispatched is True
+    assert len(calls) == 1
+    assert len(audit_writer.entries) == 2
+    bypass_entry = audit_writer.entries[0]
+    dispatch_entry = audit_writer.entries[1]
+    assert bypass_entry.action == "csp_spike_alert_cooldown_bypassed"
+    assert dispatch_entry.action == "csp_spike_alert_dispatch"
+    assert dispatch_entry.metadata["cooldown_bypassed"] == "true"
+
+
 def test_create_csp_spike_alert_sender_from_env_設定が無い場合はNone() -> None:
     """Webhook URL未設定時は送信設定を生成しない。"""
     sender = create_csp_spike_alert_sender_from_env(environ_get=lambda _: None)
@@ -647,3 +751,18 @@ def test_get_csp_spike_alert_cooldown_minutes_from_env_不正値は例外() -> N
 
     with pytest.raises(ValueError, match="CSP_SPIKE_ALERT_COOLDOWN_MINUTES"):
         get_csp_spike_alert_cooldown_minutes_from_env(environ_get=env.get)
+
+
+def test_get_csp_spike_alert_priority_increase_ratio_threshold_from_env_正常系() -> None:
+    """優先通知の増加率閾値を環境変数から読み取れる。"""
+    env = {"CSP_SPIKE_ALERT_PRIORITY_INCREASE_RATIO_THRESHOLD": "6.5"}
+    value = get_csp_spike_alert_priority_increase_ratio_threshold_from_env(environ_get=env.get)
+    assert value == 6.5
+
+
+def test_get_csp_spike_alert_priority_increase_ratio_threshold_from_env_不正値は例外() -> None:
+    """優先通知増加率閾値が不正値なら例外を返す。"""
+    env = {"CSP_SPIKE_ALERT_PRIORITY_INCREASE_RATIO_THRESHOLD": "-1"}
+
+    with pytest.raises(ValueError, match="CSP_SPIKE_ALERT_PRIORITY_INCREASE_RATIO_THRESHOLD"):
+        get_csp_spike_alert_priority_increase_ratio_threshold_from_env(environ_get=env.get)

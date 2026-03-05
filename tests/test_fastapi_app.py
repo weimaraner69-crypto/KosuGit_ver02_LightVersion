@@ -362,6 +362,60 @@ def test_create_fastapi_app_cspレポート集計_同一directiveはクールダ
     assert len(sent_payloads) == 1
 
 
+def test_create_fastapi_app_cspレポート集計_高増加率はクールダウン解除で通知(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """同一directiveでも高増加率閾値を超えると2回目も通知する。"""
+    if not _is_fastapi_available():
+        pytest.skip("fastapi 未導入のためスキップ")
+
+    from fastapi.testclient import TestClient  # type: ignore[import-not-found]
+
+    sent_payloads: list[dict[str, object]] = []
+
+    sender = CspSpikeAlertSender(
+        endpoint_url="https://hooks.example.com/csp",
+        transport=lambda _endpoint_url, _headers, body, _timeout: sent_payloads.append(
+            json.loads(body.decode("utf-8"))
+        ),
+        sleeper=lambda _: None,
+    )
+
+    monkeypatch.setattr("web.fastapi_app.create_csp_spike_alert_sender_from_env", lambda: sender)
+    monkeypatch.setattr("web.fastapi_app.get_csp_spike_alert_cooldown_minutes_from_env", lambda: 60)
+    monkeypatch.setattr(
+        "web.fastapi_app.get_csp_spike_alert_priority_increase_ratio_threshold_from_env",
+        lambda: 1.0,
+    )
+
+    app = create_fastapi_app()
+    client = TestClient(app)
+
+    client.post(
+        "/csp-report",
+        json={
+            "csp-report": {
+                "document-uri": "https://example.com/cooldown-bypass-1",
+                "violated-directive": "script-src-elem",
+                "effective-directive": "script-src",
+                "status-code": 200,
+            }
+        },
+    )
+
+    first = client.get("/csp-report/summary?days=30&top=5&spike_threshold=1")
+    second = client.get("/csp-report/summary?days=30&top=5&spike_threshold=1")
+
+    assert first.status_code == 200
+    assert first.json()["ok"] is True
+    assert first.json()["data"]["alert_dispatched"] is True
+
+    assert second.status_code == 200
+    assert second.json()["ok"] is True
+    assert second.json()["data"]["alert_dispatched"] is True
+    assert len(sent_payloads) == 2
+
+
 def test_create_fastapi_app_cspレポート集計_不正クエリは400() -> None:
     """集計APIで不正クエリパラメータは400を返す。"""
     if not _is_fastapi_available():
