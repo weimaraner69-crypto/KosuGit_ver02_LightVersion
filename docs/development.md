@@ -132,6 +132,7 @@ GitHub Actions を使用した自動チェック：
 - **Type**: mypy による型チェック
 - **Test**: pytest によるテスト実行
 - **Security**: policy_check.py による秘密情報検出
+    - 補足: `.env.example` の機密キー（`TOKEN` / `SECRET` / `PASSWORD` / `PASSWD` / `API_KEY`）に非空値がある場合も検知対象
 
 ## 環境変数設定
 
