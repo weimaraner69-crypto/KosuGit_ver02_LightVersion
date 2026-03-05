@@ -162,6 +162,21 @@ def read_text_safely(path: Path) -> str | None:
         return None
 
 
+def git_show_text(revision: str, relative_path: str) -> str | None:
+    """指定リビジョンのファイル本文を取得する。"""
+    try:
+        result = subprocess.run(
+            ["git", "show", f"{revision}:{relative_path}"],
+            capture_output=True,
+            text=True,
+            cwd=REPO_ROOT,
+            check=True,
+        )
+        return result.stdout
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        return None
+
+
 def is_url_allowlisted(line: str) -> bool:
     """URL がホワイトリストに該当するか判定する。"""
     return any(re.search(pat, line) for pat in URL_ALLOWLIST_PATTERNS)
@@ -244,6 +259,7 @@ def scan_sec_triage_spec_freeze(path: Path) -> list[str]:
         return issues
 
     rel = path.relative_to(REPO_ROOT)
+    rel_posix = rel.as_posix()
     required_fragments = [
         "## 2. 確定仕様",
         "## 4. 凍結方針",
@@ -266,6 +282,26 @@ def scan_sec_triage_spec_freeze(path: Path) -> list[str]:
             "仕様不足: 変更履歴の版表記（例: v1.0 (2026-03-05)）が見つかりません in "
             f"{rel}"
         )
+
+    current_versions = [
+        (int(major), int(minor))
+        for major, minor in re.findall(r"-\s*v(\d+)\.(\d+)\s*[\(（]\d{4}-\d{2}-\d{2}[\)）]", text)
+    ]
+    previous_text = git_show_text("HEAD^", rel_posix)
+    if previous_text is not None and previous_text != text:
+        previous_versions = [
+            (int(major), int(minor))
+            for major, minor in re.findall(
+                r"-\s*v(\d+)\.(\d+)\s*[\(（]\d{4}-\d{2}-\d{2}[\)）]",
+                previous_text,
+            )
+        ]
+        if previous_versions and current_versions:
+            if max(current_versions) <= max(previous_versions):
+                issues.append(
+                    "仕様不足: docs/sec-triage-spec-freeze.md を変更した場合は "
+                    "変更履歴の版番号を増分してください（例: v1.1 へ更新）。"
+                )
 
     return issues
 

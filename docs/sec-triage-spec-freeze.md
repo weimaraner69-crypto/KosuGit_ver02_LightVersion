@@ -73,6 +73,7 @@
 本仕様に変更が必要な場合は、以下を同一PRで更新する。
 
 - 本ドキュメント（`docs/sec-triage-spec-freeze.md`）
+- 本ドキュメントの変更履歴版番号（例: `v1.0` → `v1.1`）
 - 関連ワークフロー
   - `.github/workflows/sec011-issue-triage.yml`
   - `.github/workflows/security-issue-triage-report.yml`
@@ -81,6 +82,10 @@
   - `README.md`
 
 ## 6. 変更履歴
+
+- v1.1（2026-03-05）
+  - 変更管理に「変更履歴版番号の増分必須」を明記
+  - 版更新漏れを `ci/policy_check.py` で検知する運用を反映
 
 - v1.0（2026-03-05）
   - SEC系Issueトリアージ運用の確定仕様を初回凍結
