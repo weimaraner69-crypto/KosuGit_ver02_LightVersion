@@ -182,6 +182,7 @@ SEC-011 security-regression 失敗対応
 - 自動通知コメントは週次マーカー（`security-issue-triage-report:<ISO週>`）で同一週の重複投稿を抑止する。
 - 自動通知コメントには担当ロール候補として、実装担当（Issue起票者）とレビュー担当（リポジトリオーナー）を追記する。
 - 現時点では上記のシンプル運用を標準とし、レビュー担当候補の高度自動選出（直近対応者推定など）は運用課題が顕在化するまで導入しない。
+- `ci/policy_check.py` で `docs/sec-triage-spec-freeze.md` の必須セクション・参照先・版表記を検証し、凍結仕様との乖離を検知する。
 - 手動実行時は `report_days` 入力で集計期間を指定できる。
 - 手動実行時は `unassigned_alert_threshold` 入力で警告しきい値を指定できる。
 - 定期実行の既定期間は7日（`workflow_dispatch` 未指定時も同値）とする。

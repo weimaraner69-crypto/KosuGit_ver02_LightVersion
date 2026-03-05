@@ -229,6 +229,47 @@ def scan_env_example_for_secrets(path: Path) -> list[str]:
     return issues
 
 
+def scan_sec_triage_spec_freeze(path: Path) -> list[str]:
+    """SEC系トリアージ仕様凍結ドキュメントの最低限の整合性を確認する。"""
+    issues: list[str] = []
+    if not path.exists():
+        issues.append(
+            "仕様不足: docs/sec-triage-spec-freeze.md が存在しません。"
+        )
+        return issues
+
+    text = read_text_safely(path)
+    if text is None:
+        issues.append("仕様不足: docs/sec-triage-spec-freeze.md を読み取れません。")
+        return issues
+
+    rel = path.relative_to(REPO_ROOT)
+    required_fragments = [
+        "## 2. 確定仕様",
+        "## 4. 凍結方針",
+        "## 5. 変更管理",
+        "## 6. 変更履歴",
+        ".github/workflows/sec011-issue-triage.yml",
+        ".github/workflows/security-issue-triage-report.yml",
+        "docs/development.md",
+        "README.md",
+    ]
+
+    for fragment in required_fragments:
+        if fragment not in text:
+            issues.append(
+                f"仕様不足: 凍結仕様ドキュメントの必須要素が不足 ({fragment}) in {rel}"
+            )
+
+    if not re.search(r"-\s*v\d+\.\d+\s*[\(（]\d{4}-\d{2}-\d{2}[\)）]", text):
+        issues.append(
+            "仕様不足: 変更履歴の版表記（例: v1.0 (2026-03-05)）が見つかりません in "
+            f"{rel}"
+        )
+
+    return issues
+
+
 # ---------------------------------------------------------------------------
 # スキャン
 # ---------------------------------------------------------------------------
@@ -298,6 +339,10 @@ def main() -> int:
     env_example_path = REPO_ROOT / ".env.example"
     if env_example_path.exists():
         issues.extend(scan_env_example_for_secrets(env_example_path))
+
+    # SEC系トリアージ仕様凍結ドキュメントの整合性を確認
+    sec_triage_spec_path = REPO_ROOT / "docs" / "sec-triage-spec-freeze.md"
+    issues.extend(scan_sec_triage_spec_freeze(sec_triage_spec_path))
 
     # 対象ファイルのスキャン
     for root in SCAN_DIRS:
