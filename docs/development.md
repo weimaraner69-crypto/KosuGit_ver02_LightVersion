@@ -165,6 +165,7 @@ SEC-011 security-regression 失敗対応
 
 - GitHub Issue を起票する場合は `.github/ISSUE_TEMPLATE/security_regression.yml` を使用する。
 - PRコメント雛形と同じ項目（原因分類 / 対応内容 / 再発防止）を記録し、証跡URLを必ず添付する。
+- 凍結仕様（`docs/sec-triage-spec-freeze.md`）を変更した場合は、Issueテンプレートの版番号確認項目で増分済みであることを明示する。
 
 #### 自動トリアージ設定（SEC系）
 

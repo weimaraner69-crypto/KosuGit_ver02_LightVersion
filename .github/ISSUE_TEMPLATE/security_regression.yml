@@ -68,6 +68,16 @@ body:
       description: "再発防止の観点・追加タスク"
     validations:
       required: true
+  - type: dropdown
+    id: freeze_spec_version_check
+    attributes:
+      label: "凍結仕様版番号の確認（該当時）"
+      description: "docs/sec-triage-spec-freeze.md を変更した場合は変更履歴の版番号増分が必須"
+      options:
+        - "該当なし（凍結仕様未変更）"
+        - "該当あり（版番号増分済み）"
+    validations:
+      required: true
   - type: textarea
     id: evidence
     attributes:

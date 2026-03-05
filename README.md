@@ -529,6 +529,7 @@
 	- 反映: 担当ロール別チェックリスト（実装担当 / セキュリティ担当 / マージ担当）を `docs/development.md` のSEC-011運用Runbookとして整備
 	- 反映: SEC-011失敗時のPRコメント雛形（原因 / 対応 / 再発防止）を `docs/development.md` に追加
 	- 反映: SEC-011失敗対応Issueテンプレート（`.github/ISSUE_TEMPLATE/security_regression.yml`）を追加し、運用入力を統一
+	- 反映: Issueテンプレートに「凍結仕様変更時の版番号増分確認（該当/非該当）」項目を追加
 	- 反映: `[SEC-xxx]` Issue起票時の自動トリアージ（`security` ラベル付与 + 起票者を担当候補として自動アサイン、失敗時は手動アサイン案内コメント）を `.github/workflows/sec011-issue-triage.yml` に拡張
 	- 反映: SEC系Issueトリアージ結果の週次集計（件数サマリー + Artifact保存）を `.github/workflows/security-issue-triage-report.yml` に追加
 	- 反映: 週次集計レポートのStep Summaryに、未アサインopen Issueの警告セクション（max 10）を追加
