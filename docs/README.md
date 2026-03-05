@@ -66,6 +66,9 @@ source .venv/bin/activate  # Windows: .venv\Scripts\activate
 
 # 依存パッケージのインストール
 pip install -e ".[dev]"
+
+# ローカル環境変数ファイルを作成
+cp .env.example .env
 ```
 
 <a id="docs-spec-06"></a>
