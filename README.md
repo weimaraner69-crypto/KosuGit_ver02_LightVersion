@@ -871,6 +871,7 @@
 - 導入ガイド（対象/特徴/構成/クイックスタート）: [docs/README.md](docs/README.md)
 - 業務運用仕様（管理者ダッシュボード/日報/シフト/打刻）: [docs/operations-spec.md](docs/operations-spec.md)
 - 開発ガイド（規約/テスト/運用）: [docs/development.md](docs/development.md)
+- SEC系Issueトリアージ仕様凍結版: [docs/sec-triage-spec-freeze.md](docs/sec-triage-spec-freeze.md)
 - セキュリティ・個人情報保護: [docs/security.md](docs/security.md)
 - 監査ログ保持期間運用（Runbook）: [docs/runbook_audit_retention.md](docs/runbook_audit_retention.md)
 

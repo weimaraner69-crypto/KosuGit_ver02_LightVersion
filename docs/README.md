@@ -15,6 +15,7 @@
   - [3. セキュリティチェック](#docs-spec-07)
 - [開発](#docs-spec-08)
 - [セキュリティガイド](security.md)
+- [SEC系トリアージ仕様凍結版](sec-triage-spec-freeze.md)
 - [監査ログRunbook](runbook_audit_retention.md)
 - [ライセンス](#docs-spec-09)
 
@@ -106,6 +107,8 @@ python ci/policy_check.py
 開発の詳細は [development.md](development.md) を参照してください。
 
 セキュリティ・個人情報保護については [security.md](security.md) を参照してください。
+
+SEC系Issueトリアージの確定仕様は [sec-triage-spec-freeze.md](sec-triage-spec-freeze.md) を参照してください。
 
 監査ログ保持期間運用の手順は [runbook_audit_retention.md](runbook_audit_retention.md) を参照してください。
 
