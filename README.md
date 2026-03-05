@@ -529,6 +529,7 @@
 	- 反映: 担当ロール別チェックリスト（実装担当 / セキュリティ担当 / マージ担当）を `docs/development.md` のSEC-011運用Runbookとして整備
 	- 反映: SEC-011失敗時のPRコメント雛形（原因 / 対応 / 再発防止）を `docs/development.md` に追加
 	- 反映: SEC-011失敗対応Issueテンプレート（`.github/ISSUE_TEMPLATE/security_regression.yml`）を追加し、運用入力を統一
+	- 反映: `[SEC-011]` Issue起票時の自動トリアージ（`security` ラベル付与 + 起票者を担当候補として自動アサイン、失敗時は手動アサイン案内コメント）を `.github/workflows/sec011-issue-triage.yml` に追加
 
 - SEC-003 共通エラーハンドラ実装: 完了（現行構成）
 	- 状態: 利用者向け一般化メッセージと内部ログ向け詳細分離、機微情報マスキングを共通化

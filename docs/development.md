@@ -166,6 +166,12 @@ SEC-011 security-regression 失敗対応
 - GitHub Issue を起票する場合は `.github/ISSUE_TEMPLATE/security_regression.yml` を使用する。
 - PRコメント雛形と同じ項目（原因分類 / 対応内容 / 再発防止）を記録し、証跡URLを必ず添付する。
 
+#### 自動トリアージ設定（SEC-011）
+
+- `.github/workflows/sec011-issue-triage.yml` は、`[SEC-011]` で始まる Issue 作成時に `security` ラベル付与と担当候補アサインを実行する。
+- 担当候補は Issue 起票者とし、コラボレーター権限がある場合に自動アサインする。
+- 起票者に権限がない場合は Issue へ注意コメントを投稿し、手動アサインへフォールバックする。
+
 ## 環境変数設定
 
 - ローカル開発では `.env.example` をコピーして `.env` を作成し、必要な値を設定する。

@@ -1,0 +1,78 @@
+name: SEC-011 Issue Triage
+
+on:
+    issues:
+        types: [opened, reopened]
+
+permissions:
+    issues: write
+    contents: read
+
+concurrency:
+    group: sec011-issue-triage-${{ github.event.issue.number }}
+    cancel-in-progress: false
+
+jobs:
+    triage:
+        if: startsWith(github.event.issue.title, '[SEC-011]')
+        runs-on: ubuntu-latest
+        timeout-minutes: 5
+
+        steps:
+            - name: Ensure security label
+              env:
+                  GH_TOKEN: ${{ github.token }}
+                  ISSUE_NUMBER: ${{ github.event.issue.number }}
+              run: |
+                  gh issue edit "$ISSUE_NUMBER" --add-label "security"
+
+            - name: Assign candidate owner
+              id: assign
+              env:
+                  GH_TOKEN: ${{ github.token }}
+                  ISSUE_NUMBER: ${{ github.event.issue.number }}
+                  REPOSITORY: ${{ github.repository }}
+                  ISSUE_AUTHOR: ${{ github.event.issue.user.login }}
+              run: |
+                  set -eu
+
+                  if [ -z "${ISSUE_AUTHOR:-}" ]; then
+                    echo "assigned_user=" >> "$GITHUB_OUTPUT"
+                    echo "::notice::Issue起票者を取得できなかったため自動アサインをスキップしました。"
+                    exit 0
+                  fi
+
+                  if gh api "repos/${REPOSITORY}/collaborators/${ISSUE_AUTHOR}" --silent >/dev/null 2>&1; then
+                    gh issue edit "$ISSUE_NUMBER" --add-assignee "$ISSUE_AUTHOR"
+                    echo "assigned_user=$ISSUE_AUTHOR" >> "$GITHUB_OUTPUT"
+                    echo "Assigned SEC-011 issue #$ISSUE_NUMBER to $ISSUE_AUTHOR"
+                    exit 0
+                  fi
+
+                  echo "assigned_user=" >> "$GITHUB_OUTPUT"
+                  echo "::warning::Issue起票者にアサイン権限がないため自動アサインをスキップしました。"
+
+            - name: Notify manual assignment required
+              if: steps.assign.outputs.assigned_user == ''
+              env:
+                  GH_TOKEN: ${{ github.token }}
+                  ISSUE_NUMBER: ${{ github.event.issue.number }}
+              run: |
+                  gh issue comment "$ISSUE_NUMBER" --body "⚠️ SEC-011自動トリアージ: security ラベルは付与済みです。担当候補の自動アサインに失敗したため、手動で assignee を設定してください。"
+
+            - name: Write triage summary
+              env:
+                  ISSUE_NUMBER: ${{ github.event.issue.number }}
+                  ASSIGNED_USER: ${{ steps.assign.outputs.assigned_user }}
+              run: |
+                  {
+                    echo "## SEC-011 issue triage"
+                    echo ""
+                    echo "- issue: #${ISSUE_NUMBER}"
+                    echo "- label: security"
+                    if [ -n "${ASSIGNED_USER}" ]; then
+                      echo "- assignee: ${ASSIGNED_USER}"
+                    else
+                      echo "- assignee: not assigned (manual action required)"
+                    fi
+                  } >> "$GITHUB_STEP_SUMMARY"
