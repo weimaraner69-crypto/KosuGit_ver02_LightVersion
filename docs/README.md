@@ -15,6 +15,7 @@
   - [3. セキュリティチェック](#docs-spec-07)
 - [開発](#docs-spec-08)
 - [セキュリティガイド](security.md)
+- [監査ログRunbook](runbook_audit_retention.md)
 - [ライセンス](#docs-spec-09)
 
 <a id="docs-spec-01"></a>
