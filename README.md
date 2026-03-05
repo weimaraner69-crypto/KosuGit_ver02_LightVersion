@@ -571,6 +571,7 @@
 	- SEC-010CSP優先通知（directive別閾値上書き）追加後の回帰: `./.venv/bin/python -m pytest tests/test_csp_report.py tests/test_fastapi_app.py` → 30 passed / 13 skipped
 	- SEC-010CSP優先通知（override設定厳格化）追加後の回帰: `./.venv/bin/python -m pytest tests/test_csp_report.py tests/test_fastapi_app.py` → 31 passed / 13 skipped
 	- SEC-011セキュリティ回帰テスト追加後の回帰: `./.venv/bin/python -m pytest tests/test_security_regression.py` → 6 passed
+	- SEC-011policy_check（`.env.example` 機密値検知）追加後の回帰: `./.venv/bin/python ci/policy_check.py` → `[policy_check] OK`
 	- SEC-003共通エラーハンドラ追加後の回帰: `./.venv/bin/python -m pytest tests/test_error_handling.py tests/test_api_auth.py tests/test_api_handlers.py` → 24 passed
 
 #### Issue本文ドラフト（そのまま起票可）
