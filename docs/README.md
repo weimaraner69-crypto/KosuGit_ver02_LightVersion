@@ -103,13 +103,13 @@ python ci/policy_check.py
 <a id="docs-spec-08"></a>
 ## 開発
 
-業務運用仕様（管理者ダッシュボード・日報・シフト・打刻）の詳細は [operations-spec.md](operations-spec.md) を参照してください。
-
 開発の詳細は [development.md](development.md) を参照してください。
 
 セキュリティ・個人情報保護については [security.md](security.md) を参照してください。
 
 監査ログ保持期間運用の手順は [runbook_audit_retention.md](runbook_audit_retention.md) を参照してください。
+
+業務運用仕様（管理者ダッシュボード・日報・シフト・打刻）の詳細は [operations-spec.md](operations-spec.md) を参照してください。
 
 <a id="docs-spec-09"></a>
 ## ライセンス
