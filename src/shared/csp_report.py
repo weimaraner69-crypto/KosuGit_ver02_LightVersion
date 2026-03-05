@@ -158,6 +158,7 @@ def get_csp_report_summary(
     session: Session,
     days: int,
     top_directives: int,
+    spike_threshold: int,
     now: datetime | None = None,
 ) -> dict[str, Any]:
     """CSPレポートの期間別件数・directive別件数を集計する。"""
@@ -165,9 +166,12 @@ def get_csp_report_summary(
         raise ValueError("days は正の値である必要があります")
     if top_directives <= 0:
         raise ValueError("top_directives は正の値である必要があります")
+    if spike_threshold <= 0:
+        raise ValueError("spike_threshold は正の値である必要があります")
 
     current = now or datetime.now(timezone.utc)  # noqa: UP017
     since = current - timedelta(days=days)
+    recent_since = current - timedelta(days=1)
 
     total_reports = (
         session.query(func.count(CspReportTable.id))
@@ -202,9 +206,69 @@ def get_csp_report_summary(
         .all()
     )
 
+    recent_rows = (
+        session.query(
+            CspReportTable.violated_directive,
+            func.count(CspReportTable.id),
+        )
+        .filter(
+            CspReportTable.occurred_at >= recent_since,
+            CspReportTable.occurred_at <= current,
+            CspReportTable.violated_directive.isnot(None),
+            CspReportTable.violated_directive != "",
+        )
+        .group_by(CspReportTable.violated_directive)
+        .all()
+    )
+
+    baseline_rows = (
+        session.query(
+            CspReportTable.violated_directive,
+            func.count(CspReportTable.id),
+        )
+        .filter(
+            CspReportTable.occurred_at >= since,
+            CspReportTable.occurred_at < recent_since,
+            CspReportTable.violated_directive.isnot(None),
+            CspReportTable.violated_directive != "",
+        )
+        .group_by(CspReportTable.violated_directive)
+        .all()
+    )
+
+    recent_counts: dict[str, int] = {
+        str(directive): int(report_count)
+        for directive, report_count in recent_rows
+    }
+    baseline_counts: dict[str, int] = {
+        str(directive): int(report_count)
+        for directive, report_count in baseline_rows
+    }
+    baseline_days = max(days - 1, 1)
+
+    spike_directives: list[dict[str, Any]] = []
+    for directive, recent_count in recent_counts.items():
+        baseline_daily_avg = baseline_counts.get(directive, 0) / baseline_days
+        increase = recent_count - baseline_daily_avg
+        if increase >= spike_threshold:
+            spike_directives.append(
+                {
+                    "directive": directive,
+                    "recent_count": recent_count,
+                    "baseline_daily_avg": round(baseline_daily_avg, 2),
+                    "increase": round(increase, 2),
+                }
+            )
+
+    spike_directives.sort(
+        key=lambda item: (float(item["increase"]), int(item["recent_count"])),
+        reverse=True,
+    )
+
     return {
         "range_days": days,
         "total_reports": int(total_reports or 0),
+        "spike_threshold": spike_threshold,
         "period_counts": [
             {
                 "date": str(bucket),
@@ -219,4 +283,5 @@ def get_csp_report_summary(
             }
             for directive, report_count in directive_rows
         ],
+        "spike_directives": spike_directives,
     }

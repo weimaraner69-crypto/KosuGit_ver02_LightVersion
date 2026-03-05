@@ -186,11 +186,13 @@ def test_get_csp_report_summary_期間別とdirective別を集計できる() -> 
             session=session,
             days=7,
             top_directives=10,
+            spike_threshold=3,
             now=now,
         )
 
     assert summary["range_days"] == 7
     assert summary["total_reports"] == 2
+    assert summary["spike_threshold"] == 3
     assert summary["period_counts"] == [
         {"date": "2026-03-03", "count": 1},
         {"date": "2026-03-04", "count": 1},
@@ -198,4 +200,83 @@ def test_get_csp_report_summary_期間別とdirective別を集計できる() -> 
     assert summary["directive_counts"] == [
         {"directive": "img-src", "count": 1},
         {"directive": "script-src-elem", "count": 1},
+    ]
+    assert summary["spike_directives"] == []
+
+
+def test_get_csp_report_summary_急増directiveを検知できる() -> None:
+    """直近24時間の件数増加がしきい値を超えるdirectiveを検知する。"""
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(bind=engine)
+    now = datetime(2026, 3, 5, 12, 0, tzinfo=timezone.utc)
+
+    with Session(engine) as session:
+        writer = SqlAlchemyCspReportWriter(session=session, auto_commit=False)
+
+        writer.write(
+            build_csp_report_entry(
+                {
+                    "document-uri": "https://example.com/recent-1",
+                    "violated-directive": "script-src-elem",
+                    "effective-directive": "script-src",
+                    "status-code": 200,
+                }
+            )
+        )
+        writer.write(
+            build_csp_report_entry(
+                {
+                    "document-uri": "https://example.com/recent-2",
+                    "violated-directive": "script-src-elem",
+                    "effective-directive": "script-src",
+                    "status-code": 200,
+                }
+            )
+        )
+        writer.write(
+            build_csp_report_entry(
+                {
+                    "document-uri": "https://example.com/recent-3",
+                    "violated-directive": "script-src-elem",
+                    "effective-directive": "script-src",
+                    "status-code": 200,
+                }
+            )
+        )
+        writer.write(
+            build_csp_report_entry(
+                {
+                    "document-uri": "https://example.com/baseline",
+                    "violated-directive": "script-src-elem",
+                    "effective-directive": "script-src",
+                    "status-code": 200,
+                }
+            )
+        )
+
+        row1 = session.query(CspReportTable).filter(CspReportTable.id == 1).one()
+        row1.occurred_at = now - timedelta(hours=2)
+        row2 = session.query(CspReportTable).filter(CspReportTable.id == 2).one()
+        row2.occurred_at = now - timedelta(hours=3)
+        row3 = session.query(CspReportTable).filter(CspReportTable.id == 3).one()
+        row3.occurred_at = now - timedelta(hours=4)
+        row4 = session.query(CspReportTable).filter(CspReportTable.id == 4).one()
+        row4.occurred_at = now - timedelta(days=2)
+        session.flush()
+
+        summary = get_csp_report_summary(
+            session=session,
+            days=7,
+            top_directives=10,
+            spike_threshold=2,
+            now=now,
+        )
+
+    assert summary["spike_directives"] == [
+        {
+            "directive": "script-src-elem",
+            "recent_count": 3,
+            "baseline_daily_avg": 0.17,
+            "increase": 2.83,
+        }
     ]

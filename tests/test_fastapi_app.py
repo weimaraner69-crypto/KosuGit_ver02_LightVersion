@@ -191,17 +191,21 @@ def test_create_fastapi_app_cspレポート集計を取得できる() -> None:
         },
     )
 
-    response = client.get("/csp-report/summary?days=30&top=5")
+    response = client.get("/csp-report/summary?days=30&top=5&spike_threshold=1")
 
     assert response.status_code == 200
     assert response.json()["ok"] is True
     data = response.json()["data"]
     assert data["range_days"] == 30
     assert data["total_reports"] >= 2
+    assert data["spike_threshold"] == 1
     assert isinstance(data["period_counts"], list)
     directive_names = [item["directive"] for item in data["directive_counts"]]
     assert "script-src-elem" in directive_names
     assert "img-src" in directive_names
+    spike_names = [item["directive"] for item in data["spike_directives"]]
+    assert "script-src-elem" in spike_names
+    assert "img-src" in spike_names
 
 
 def test_create_fastapi_app_cspレポート集計_不正クエリは400() -> None:
@@ -215,6 +219,25 @@ def test_create_fastapi_app_cspレポート集計_不正クエリは400() -> Non
     client = TestClient(app)
 
     response = client.get("/csp-report/summary?days=0")
+
+    assert response.status_code == 400
+    assert response.json() == {
+        "ok": False,
+        "error": "不正なリクエストです",
+    }
+
+
+def test_create_fastapi_app_cspレポート集計_不正しきい値は400() -> None:
+    """集計APIで不正なしきい値は400を返す。"""
+    if not _is_fastapi_available():
+        pytest.skip("fastapi 未導入のためスキップ")
+
+    from fastapi.testclient import TestClient  # type: ignore[import-not-found]
+
+    app = create_fastapi_app()
+    client = TestClient(app)
+
+    response = client.get("/csp-report/summary?spike_threshold=0")
 
     assert response.status_code == 400
     assert response.json() == {

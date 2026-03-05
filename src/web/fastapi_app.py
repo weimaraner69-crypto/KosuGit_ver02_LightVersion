@@ -154,7 +154,12 @@ def _persist_csp_report_to_database(sanitized_report: dict[str, Any]) -> int:
     return row_id
 
 
-def _summarize_csp_reports_from_database(*, days: int, top_directives: int) -> dict[str, Any]:
+def _summarize_csp_reports_from_database(
+    *,
+    days: int,
+    top_directives: int,
+    spike_threshold: int,
+) -> dict[str, Any]:
     """CSPレポート集計をデータベースから取得する。"""
     try:
         session_factory = get_session_factory()
@@ -167,6 +172,7 @@ def _summarize_csp_reports_from_database(*, days: int, top_directives: int) -> d
             session=session,
             days=days,
             top_directives=top_directives,
+            spike_threshold=spike_threshold,
         )
 
 
@@ -266,10 +272,17 @@ def create_fastapi_app() -> Any:
                 default=10,
                 max_value=100,
             )
+            spike_threshold = _parse_positive_query_parameter(
+                request.query_params.get("spike_threshold"),
+                parameter_name="spike_threshold",
+                default=3,
+                max_value=1000,
+            )
 
             summary = _summarize_csp_reports_from_database(
                 days=days,
                 top_directives=top_directives,
+                spike_threshold=spike_threshold,
             )
             api_response = ApiResponse(
                 status_code=200,
