@@ -15,6 +15,7 @@ from shared.security import sanitize_input
 AUTH_USER_ID_HEADER_NAME = "X-User-Id"
 AUTH_ROLE_HEADER_NAME = "X-User-Role"
 AUTH_IS_ACTIVE_HEADER_NAME = "X-User-Active"
+CSP_REPORT_BODY_KEY = "csp-report"
 
 
 def _is_fastapi_available() -> bool:
@@ -68,6 +69,37 @@ def _sales_exporter(authorized_context: AuthContext) -> dict[str, Any]:
     }
 
 
+def _sanitize_csp_report_payload(payload: Any) -> dict[str, Any]:
+    """CSPレポートJSONを最小限サニタイズする。"""
+    if not isinstance(payload, dict):
+        raise ValueError("CSPレポート形式が不正です")
+
+    raw_report = payload.get(CSP_REPORT_BODY_KEY)
+    if not isinstance(raw_report, dict):
+        raise ValueError("CSPレポート形式が不正です")
+
+    sanitized_report: dict[str, Any] = {}
+    string_fields = {
+        "document-uri": 1024,
+        "violated-directive": 256,
+        "effective-directive": 256,
+        "blocked-uri": 1024,
+        "original-policy": 2048,
+        "disposition": 32,
+        "referrer": 1024,
+    }
+    for field_name, max_length in string_fields.items():
+        value = raw_report.get(field_name)
+        if isinstance(value, str):
+            sanitized_report[field_name] = sanitize_input(value, max_length=max_length)
+
+    status_code_value = raw_report.get("status-code")
+    if isinstance(status_code_value, int):
+        sanitized_report["status-code"] = status_code_value
+
+    return sanitized_report
+
+
 def create_fastapi_app() -> Any:
     """FastAPI アプリを生成する。"""
     if not _is_fastapi_available():
@@ -107,9 +139,36 @@ def create_fastapi_app() -> Any:
         )
         return adapt_api_response_to_fastapi(api_response)
 
+    async def csp_report_handler(request: Any) -> Any:
+        """CSP違反レポートの受信エンドポイント。"""
+        try:
+            payload = await request.json()
+            sanitized_report = _sanitize_csp_report_payload(payload)
+            api_response = ApiResponse(
+                status_code=200,
+                body={
+                    "ok": True,
+                    "data": {
+                        "accepted": True,
+                        "report_fields": sorted(sanitized_report.keys()),
+                    },
+                },
+            )
+        except Exception:
+            api_response = ApiResponse(
+                status_code=400,
+                body={
+                    "ok": False,
+                    "error": "不正なリクエストです",
+                },
+            )
+
+        return adapt_api_response_to_fastapi(api_response)
+
     app = FastAPI(title="business-management-system", version="0.1.0")
 
     app.get("/health")(health_check_handler)
     app.post("/business/sales/export")(export_sales_handler)
+    app.post("/csp-report")(csp_report_handler)
 
     return app
