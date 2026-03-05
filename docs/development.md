@@ -172,6 +172,13 @@ SEC-011 security-regression 失敗対応
 - 担当候補は Issue 起票者とし、コラボレーター権限がある場合に自動アサインする。
 - 起票者に権限がない場合は Issue へ注意コメントを投稿し、手動アサインへフォールバックする。
 
+#### 週次集計レポート設定（SEC系）
+
+- `.github/workflows/security-issue-triage-report.yml` は週次実行でSEC系Issueのトリアージ結果を集計する。
+- Step Summary へ件数（total/open/closed/assigned/unassigned）を出力し、同内容をArtifactとして保存する。
+- 手動実行時は `report_days` 入力で集計期間を指定できる。
+- 定期実行の既定期間は7日（`workflow_dispatch` 未指定時も同値）とする。
+
 ## 環境変数設定
 
 - ローカル開発では `.env.example` をコピーして `.env` を作成し、必要な値を設定する。
