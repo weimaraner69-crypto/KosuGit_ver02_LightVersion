@@ -133,6 +133,16 @@ GitHub Actions を使用した自動チェック：
 - **Test**: pytest によるテスト実行
 - **Security**: policy_check.py による秘密情報検出
 
+## 環境変数設定
+
+- ローカル開発では `.env.example` をコピーして `.env` を作成し、必要な値を設定する。
+- `.env` は機密情報を含むためコミットしない（`.gitignore` で除外済み）。
+- CSP通知（SEC-010）の運用値は `docs/security.md` の「CSP違反通知の運用設定（SEC-010）」に従う。
+
+```bash
+cp .env.example .env
+```
+
 ## エージェント
 
 開発を支援する3つのエージェント：
