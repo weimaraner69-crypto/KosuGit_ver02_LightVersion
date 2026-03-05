@@ -315,6 +315,57 @@ def test_dispatch_csp_spike_alert_急増が無い場合は送信しない() -> N
     assert calls == []
 
 
+def test_csp_spike_alert_sender_再送で成功する() -> None:
+    """一時失敗があっても再送で成功できる。"""
+    call_count = 0
+    backoff_calls: list[float] = []
+
+    def flaky_transport(_: str, __: dict[str, str], ___: bytes, ____: float) -> None:
+        nonlocal call_count
+        call_count += 1
+        if call_count < 3:
+            raise RuntimeError("temporary network error")
+
+    sender = CspSpikeAlertSender(
+        endpoint_url="https://hooks.example.com/csp",
+        max_retries=3,
+        retry_backoff_seconds=0.25,
+        transport=flaky_transport,
+        sleeper=backoff_calls.append,
+    )
+
+    attempts = sender.send({"event": "csp_spike_detected"})
+
+    assert attempts == 3
+    assert call_count == 3
+    assert backoff_calls == [0.25, 0.5]
+
+
+def test_csp_spike_alert_sender_再送上限到達で失敗する() -> None:
+    """再送上限まで失敗した場合は例外を送出する。"""
+    call_count = 0
+    backoff_calls: list[float] = []
+
+    def failing_transport(_: str, __: dict[str, str], ___: bytes, ____: float) -> None:
+        nonlocal call_count
+        call_count += 1
+        raise RuntimeError("network down")
+
+    sender = CspSpikeAlertSender(
+        endpoint_url="https://hooks.example.com/csp",
+        max_retries=1,
+        retry_backoff_seconds=0.2,
+        transport=failing_transport,
+        sleeper=backoff_calls.append,
+    )
+
+    with pytest.raises(RuntimeError, match="network down"):
+        sender.send({"event": "csp_spike_detected"})
+
+    assert call_count == 2
+    assert backoff_calls == [0.2]
+
+
 def test_dispatch_csp_spike_alert_急増がある場合は送信する() -> None:
     """急増がある場合はWebhookへ送信する。"""
     calls: list[dict[str, object]] = []
@@ -368,6 +419,80 @@ def test_dispatch_csp_spike_alert_急増がある場合は送信する() -> None
     assert payload["spike_directives"][0]["directive"] == "script-src-elem"
 
 
+def test_dispatch_csp_spike_alert_成功時は監査ログへ記録する() -> None:
+    """通知成功時に監査ログを記録する。"""
+    audit_writer = InMemoryAuditLogWriter()
+
+    sender = CspSpikeAlertSender(
+        endpoint_url="https://hooks.example.com/csp",
+        transport=lambda *_: None,
+    )
+
+    dispatched = dispatch_csp_spike_alert(
+        summary={
+            "range_days": 7,
+            "total_reports": 20,
+            "spike_threshold": 2,
+            "spike_directives": [
+                {
+                    "directive": "script-src-elem",
+                    "recent_count": 5,
+                    "baseline_daily_avg": 0.5,
+                    "increase": 4.5,
+                }
+            ],
+        },
+        sender=sender,
+        audit_log_writer=audit_writer,
+    )
+
+    assert dispatched is True
+    assert len(audit_writer.entries) == 1
+    entry = audit_writer.entries[0]
+    assert entry.action == "csp_spike_alert_dispatch"
+    assert entry.result == "success"
+    assert entry.metadata["attempt_count"] == "1"
+
+
+def test_dispatch_csp_spike_alert_失敗時は監査ログへfailureを記録する() -> None:
+    """通知失敗時に監査ログへfailureを記録して例外送出する。"""
+    audit_writer = InMemoryAuditLogWriter()
+
+    sender = CspSpikeAlertSender(
+        endpoint_url="https://hooks.example.com/csp",
+        max_retries=1,
+        retry_backoff_seconds=0.1,
+        transport=lambda *_: (_ for _ in ()).throw(RuntimeError("webhook unavailable")),
+        sleeper=lambda _: None,
+    )
+
+    with pytest.raises(RuntimeError, match="webhook unavailable"):
+        dispatch_csp_spike_alert(
+            summary={
+                "range_days": 7,
+                "total_reports": 20,
+                "spike_threshold": 2,
+                "spike_directives": [
+                    {
+                        "directive": "script-src-elem",
+                        "recent_count": 5,
+                        "baseline_daily_avg": 0.5,
+                        "increase": 4.5,
+                    }
+                ],
+            },
+            sender=sender,
+            audit_log_writer=audit_writer,
+        )
+
+    assert len(audit_writer.entries) == 1
+    entry = audit_writer.entries[0]
+    assert entry.action == "csp_spike_alert_dispatch"
+    assert entry.result == "failure"
+    assert entry.error_type == "RuntimeError"
+    assert entry.metadata["max_retries"] == "1"
+
+
 def test_create_csp_spike_alert_sender_from_env_設定が無い場合はNone() -> None:
     """Webhook URL未設定時は送信設定を生成しない。"""
     sender = create_csp_spike_alert_sender_from_env(environ_get=lambda _: None)
@@ -379,6 +504,8 @@ def test_create_csp_spike_alert_sender_from_env_設定値から生成できる()
     env = {
         "CSP_SPIKE_ALERT_WEBHOOK_URL": " https://hooks.example.com/csp ",
         "CSP_SPIKE_ALERT_TIMEOUT_SECONDS": "5.5",
+        "CSP_SPIKE_ALERT_MAX_RETRIES": "3",
+        "CSP_SPIKE_ALERT_RETRY_BACKOFF_SECONDS": "0.75",
         "CSP_SPIKE_ALERT_BEARER_TOKEN": " secret-token ",
     }
 
@@ -387,4 +514,17 @@ def test_create_csp_spike_alert_sender_from_env_設定値から生成できる()
     assert sender is not None
     assert sender.endpoint_url == "https://hooks.example.com/csp"
     assert sender.timeout_seconds == 5.5
+    assert sender.max_retries == 3
+    assert sender.retry_backoff_seconds == 0.75
     assert sender.bearer_token == "secret-token"
+
+
+def test_create_csp_spike_alert_sender_from_env_不正リトライ値は例外() -> None:
+    """max_retries が不正値の場合は例外を送出する。"""
+    env = {
+        "CSP_SPIKE_ALERT_WEBHOOK_URL": "https://hooks.example.com/csp",
+        "CSP_SPIKE_ALERT_MAX_RETRIES": "-1",
+    }
+
+    with pytest.raises(ValueError, match="CSP_SPIKE_ALERT_MAX_RETRIES"):
+        create_csp_spike_alert_sender_from_env(environ_get=env.get)

@@ -6,6 +6,7 @@ import json
 import os
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
+from time import sleep
 from typing import TYPE_CHECKING, Any, Protocol
 from urllib.request import Request, urlopen
 
@@ -17,6 +18,25 @@ from shared.tables import CspReportTable
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping
+
+
+def _parse_non_negative_int(value: str | None, *, default: int, setting_name: str) -> int:
+    """環境変数から0以上の整数を読み取る。"""
+    if value is None:
+        return default
+
+    normalized = value.strip()
+    if not normalized:
+        return default
+
+    try:
+        parsed = int(normalized)
+    except ValueError as error:
+        raise ValueError(f"{setting_name} は整数で指定してください") from error
+
+    if parsed < 0:
+        raise ValueError(f"{setting_name} は0以上である必要があります")
+    return parsed
 
 
 @dataclass(frozen=True)
@@ -91,9 +111,12 @@ class CspSpikeAlertSender:
 
     endpoint_url: str
     timeout_seconds: float = 3.0
+    max_retries: int = 0
+    retry_backoff_seconds: float = 0.5
     bearer_token: str | None = None
     extra_headers: Mapping[str, str] = field(default_factory=dict)
     transport: Callable[[str, Mapping[str, str], bytes, float], None] | None = None
+    sleeper: Callable[[float], None] = sleep
 
     def __post_init__(self) -> None:
         """不変条件の検証。"""
@@ -105,9 +128,13 @@ class CspSpikeAlertSender:
             raise ValueError("endpoint_url は http:// または https:// で始まる必要があります")
         if self.timeout_seconds <= 0:
             raise ValueError("timeout_seconds は正の値である必要があります")
+        if self.max_retries < 0:
+            raise ValueError("max_retries は0以上である必要があります")
+        if self.retry_backoff_seconds <= 0:
+            raise ValueError("retry_backoff_seconds は正の値である必要があります")
 
-    def send(self, payload: Mapping[str, Any]) -> None:
-        """Webhookへ通知を送信する。"""
+    def send(self, payload: Mapping[str, Any]) -> int:
+        """Webhookへ通知を送信し、試行回数を返す。"""
         headers = {
             "Content-Type": "application/json",
             "Accept": "application/json",
@@ -123,7 +150,20 @@ class CspSpikeAlertSender:
         ).encode("utf-8")
 
         transport = self.transport or _default_alert_transport
-        transport(self.endpoint_url, headers, body, self.timeout_seconds)
+
+        attempt_count = self.max_retries + 1
+        for attempt_index in range(attempt_count):
+            try:
+                transport(self.endpoint_url, headers, body, self.timeout_seconds)
+                return attempt_index + 1
+            except Exception:
+                if attempt_index >= self.max_retries:
+                    raise
+
+                backoff_seconds = self.retry_backoff_seconds * (2**attempt_index)
+                self.sleeper(backoff_seconds)
+
+        return attempt_count
 
 
 def build_csp_spike_alert_payload(summary: Mapping[str, Any]) -> dict[str, Any]:
@@ -141,14 +181,46 @@ def dispatch_csp_spike_alert(
     *,
     summary: Mapping[str, Any],
     sender: CspSpikeAlertSender,
+    audit_log_writer: AuditLogWriter | None = None,
 ) -> bool:
     """急増directiveが存在する場合のみ通知する。"""
     spikes = summary.get("spike_directives")
     if not isinstance(spikes, list) or len(spikes) == 0:
         return False
 
-    sender.send(build_csp_spike_alert_payload(summary))
-    return True
+    payload = build_csp_spike_alert_payload(summary)
+
+    try:
+        attempt_count = sender.send(payload)
+        write_audit_log(
+            writer=audit_log_writer,
+            actor_user_id="system",
+            actor_role="system",
+            resource="security",
+            action="csp_spike_alert_dispatch",
+            result="success",
+            metadata={
+                "spike_directive_count": str(len(spikes)),
+                "attempt_count": str(attempt_count),
+                "max_retries": str(sender.max_retries),
+            },
+        )
+        return True
+    except Exception as error:
+        write_audit_log(
+            writer=audit_log_writer,
+            actor_user_id="system",
+            actor_role="system",
+            resource="security",
+            action="csp_spike_alert_dispatch",
+            result="failure",
+            error_type=type(error).__name__,
+            metadata={
+                "spike_directive_count": str(len(spikes)),
+                "max_retries": str(sender.max_retries),
+            },
+        )
+        raise
 
 
 def create_csp_spike_alert_sender_from_env(
@@ -167,6 +239,16 @@ def create_csp_spike_alert_sender_from_env(
         default=3.0,
         setting_name="CSP_SPIKE_ALERT_TIMEOUT_SECONDS",
     )
+    max_retries = _parse_non_negative_int(
+        get_value("CSP_SPIKE_ALERT_MAX_RETRIES"),
+        default=2,
+        setting_name="CSP_SPIKE_ALERT_MAX_RETRIES",
+    )
+    retry_backoff_seconds = _parse_positive_float(
+        get_value("CSP_SPIKE_ALERT_RETRY_BACKOFF_SECONDS"),
+        default=0.5,
+        setting_name="CSP_SPIKE_ALERT_RETRY_BACKOFF_SECONDS",
+    )
 
     bearer_token_raw = get_value("CSP_SPIKE_ALERT_BEARER_TOKEN")
     bearer_token = bearer_token_raw.strip() if isinstance(bearer_token_raw, str) else None
@@ -176,6 +258,8 @@ def create_csp_spike_alert_sender_from_env(
     return CspSpikeAlertSender(
         endpoint_url=endpoint_url,
         timeout_seconds=timeout_seconds,
+        max_retries=max_retries,
+        retry_backoff_seconds=retry_backoff_seconds,
         bearer_token=bearer_token,
     )
 

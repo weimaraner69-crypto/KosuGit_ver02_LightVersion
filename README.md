@@ -505,10 +505,12 @@
 	- 反映: `spike_threshold`（`GET /csp-report/summary`）を追加し、直近24時間の急増directive（`spike_directives`）をしきい値超過で検知
 	- 反映: `create_csp_spike_alert_sender_from_env` / `dispatch_csp_spike_alert`（`src/shared/csp_report.py`）を追加し、Webhook通知設定の読取と急増時通知を実装
 	- 反映: `GET /csp-report/summary`（`src/web/fastapi_app.py`）で急増検知時のWebhook通知連携を追加し、レスポンスに `alert_dispatched` を返却
+	- 反映: `CspSpikeAlertSender`（`src/shared/csp_report.py`）へリトライ回数・指数バックオフを追加し、通知失敗時の再送戦略を実装
+	- 反映: `dispatch_csp_spike_alert`（`src/shared/csp_report.py`）で通知成功/失敗を監査ログ（`csp_spike_alert_dispatch`）へ記録
 	- 反映: `SecurityRuntimeConfig` に `security_headers` を追加し、環境変数でヘッダー/CSPポリシーを制御可能化
 	- 追加: SEC-010設定・接続テスト（`tests/test_security_config.py`, `tests/test_api_handlers.py`, `tests/test_auth_endpoints.py`, `tests/test_http_response_adapter.py`, `tests/test_fastapi_response_adapter.py`, `tests/test_fastapi_app.py`, `tests/test_csp_report.py`）
 	- 次アクション:
-		- `/business/sales/export` 以外の業務APIへ段階的にルーターを拡張し、通知結果の運用監視（Slack連携/失敗再送）を追加する
+		- `/business/sales/export` 以外の業務APIへ段階的にルーターを拡張し、通知結果の運用監視（Slack連携/アラート抑制）を追加する
 
 - SEC-011 セキュリティテスト整備: 完了（現行構成）
 	- 状態: 主要防御機能（401/403/CSRF/Cookie属性/ログインロック/監査マスキング）の回帰テストを追加
@@ -556,6 +558,7 @@
 	- SEC-010CSP永続化/監査連携追加後の回帰: `./.venv/bin/python -m pytest tests/test_csp_report.py tests/test_fastapi_app.py` → 5-7 passed / 0-5 skipped
 	- SEC-010CSP集計ビュー/急増検知追加後の回帰: `./.venv/bin/python -m pytest tests/test_csp_report.py tests/test_fastapi_app.py` → 7 passed / 0-8 skipped
 	- SEC-010CSP急増通知Webhook連携追加後の回帰: `./.venv/bin/python -m pytest tests/test_csp_report.py tests/test_fastapi_app.py` → 11 passed / 9 skipped
+	- SEC-010CSP通知再送/監査ログ追加後の回帰: `./.venv/bin/python -m pytest tests/test_csp_report.py tests/test_fastapi_app.py` → 16 passed / 10 skipped
 	- SEC-011セキュリティ回帰テスト追加後の回帰: `./.venv/bin/python -m pytest tests/test_security_regression.py` → 6 passed
 	- SEC-003共通エラーハンドラ追加後の回帰: `./.venv/bin/python -m pytest tests/test_error_handling.py tests/test_api_auth.py tests/test_api_handlers.py` → 24 passed
 

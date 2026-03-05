@@ -184,7 +184,22 @@ def _dispatch_csp_spike_alert_if_needed(summary: dict[str, Any]) -> bool:
     if sender is None:
         return False
 
-    return dispatch_csp_spike_alert(summary=summary, sender=sender)
+    try:
+        session_factory = get_session_factory()
+    except RuntimeError:
+        init_db()
+        session_factory = get_session_factory()
+
+    with session_factory() as session:
+        audit_log_writer = SqlAlchemyAuditLogWriter(session=session, auto_commit=False)
+        dispatched = dispatch_csp_spike_alert(
+            summary=summary,
+            sender=sender,
+            audit_log_writer=audit_log_writer,
+        )
+        session.commit()
+
+    return dispatched
 
 
 def create_fastapi_app() -> Any:

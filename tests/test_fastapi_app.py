@@ -268,6 +268,50 @@ def test_create_fastapi_app_cspレポート集計_急増時に通知送信され
     assert sent_payloads[0]["event"] == "csp_spike_detected"
 
 
+def test_create_fastapi_app_cspレポート集計_通知失敗時も200を返す(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """通知失敗時でも集計APIは200で応答し alert_dispatched は false。"""
+    if not _is_fastapi_available():
+        pytest.skip("fastapi 未導入のためスキップ")
+
+    from fastapi.testclient import TestClient  # type: ignore[import-not-found]
+
+    def failing_transport(_: str, __: dict[str, str], ___: bytes, ____: float) -> None:
+        raise RuntimeError("webhook unavailable")
+
+    sender = CspSpikeAlertSender(
+        endpoint_url="https://hooks.example.com/csp",
+        max_retries=1,
+        retry_backoff_seconds=0.1,
+        transport=failing_transport,
+        sleeper=lambda _: None,
+    )
+
+    monkeypatch.setattr("web.fastapi_app.create_csp_spike_alert_sender_from_env", lambda: sender)
+
+    app = create_fastapi_app()
+    client = TestClient(app)
+
+    client.post(
+        "/csp-report",
+        json={
+            "csp-report": {
+                "document-uri": "https://example.com/spike-1",
+                "violated-directive": "script-src-elem",
+                "effective-directive": "script-src",
+                "status-code": 200,
+            }
+        },
+    )
+
+    response = client.get("/csp-report/summary?days=30&top=5&spike_threshold=1")
+
+    assert response.status_code == 200
+    assert response.json()["ok"] is True
+    assert response.json()["data"]["alert_dispatched"] is False
+
+
 def test_create_fastapi_app_cspレポート集計_不正クエリは400() -> None:
     """集計APIで不正クエリパラメータは400を返す。"""
     if not _is_fastapi_available():
