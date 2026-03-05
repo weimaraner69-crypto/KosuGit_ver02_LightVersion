@@ -259,6 +259,7 @@ CSP_SPIKE_ALERT_PRIORITY_INCREASE_RATIO_THRESHOLD_OVERRIDES=script-src-elem=3.0,
 
 - 初期2週間は上記推奨値で運用し、通知頻度と誤検知率を確認してから段階調整する。
 - しきい値の変更は「変更日時・変更者・目的」を監査ログ運用記録へ残す。
+- CSP通知設定を変更する際は `docs/security.md` と `.env.example` の値を同一PRで同期する。
 - トークン・Webhook URL をログへ出力しない（マスク運用を維持する）。
 
 ## 入力検証
